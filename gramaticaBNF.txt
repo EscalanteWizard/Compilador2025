@@ -1,0 +1,303 @@
+abstract ::= ABSTRACT
+Boolean ::= BOOLEAN
+break ::= BREAK
+
+dot ::= DOT
+DecIntegerLiteral ::= INT_LITERAL
+floatNum ::= FLOATNUM
+true ::= TRUE 
+false ::= FALSE
+
+- ::= MENOS
+-- ::= DMENOS
++ ::= MAS
+++ ::=DMAS
+
+* ::= MULTI
+/ ::= DIV
+// ::= FLOAT_DIV
+^ ::= POTENCIA
+
+¿ ::= INIT_BLOCK
+? ::= END_BLOCK
+$ ::= DOLLAR
+int ::= INT
+char ::= CHAR
+float ::= FLOAT
+bool ::= BOOL
+string ::= STRING
+array ::= ARRAY
+
+
+decide of ::= DECIDE_OF
+-> ::= ARROW
+else ::= ELSE
+end decide ::= END_DECIDE
+
+loop ::= LOOP
+exit when ::= EXIT_WHEN
+end loop ::= END_LOOP
+
+for ::= FOR
+to ::= TO
+downto ::= DOWNTO
+step ::= STEP
+do ::= DO
+
+( ::= UKRA
+) ::= RUSS
+
+[ ::= SQUARES
+] ::= SQUAREC
+
+Є ::= UKRA
+Э ::= RUSS
+
+= ::= EQ
+> ::= GREATHER
+< ::= LOWER
+>= ::= MORE
+<= ::= LESS
+== ::= COMPARA
+!= ::= DIFF
+@ ::= AND
+~ ::=OR
+Σ ::= NEGA 
+
+| ::= COMMENT
+! ::= INIT_COMENT
+¡ ::= END_COMMENT
+
+programa ::= PROGRAMA
+principal ::= PRINCIPAL
+
+func ::= FUNC
+param ::= PARAM
+, ::= COMA
+
+loc ::= LOC
+glob ::= GLOB
+let ::= LET
+
+return ::= RETURN
+default ::= DEFAULT
+break ::= BREAK
+
+output ::= OUTPUT
+input ::= INPUT
+
+
+/* The grammar rules */    
+
+start with PROGRAMA;
+
+PROGRAMA ::= PRINCIPAL 
+
+mainInitial  ::= FUNC INT MAIN 
+
+mainStruc    ::= mainInitial INIT_BLOCK BLOCK RETURN DOLLAR END_BLOCK  
+             | mainInitial INIT_BLOCK BLOCK RETURN exprP DOLLAR END_BLOCK;
+
+PRINCIPAL ::= funcStruc PRINCIPAL | mainStruc PRINCIPAL | arrayInsGl DOLLAR PRINCIPAL | varInsGl DOLLAR PRINCIPAL | varInsAsigGl 
+    | varInsAsigGl PRINCIPAL | funcStruc | mainStruc | arrayInsGl DOLLAR | varInsGl DOLLAR | error | error PRINCIPAL
+    | arrayInsAsignGl PRINCIPAL | arrayInsAsignGl;  
+
+
+//Posibles contenidos de un bloque
+BLOCK  ::=  BLOCK exprP DOLLAR
+       | BLOCK varAsig 
+       | BLOCK arrayInsGl DOLLAR
+       | BLOCK varInsGl DOLLAR
+       | BLOCK varInsAsigGl
+       | BLOCK arrayInsAsignGl
+       | BLOCK mainStruc
+       | BLOCK funcStruc 
+       | BLOCK varIns DOLLAR
+       | BLOCK decideOfStruc 
+       | BLOCK decideOfElseStruc 
+       | BLOCK loopStruc 
+       | BLOCK switchStruc 
+       | BLOCK forStruc 
+       | BLOCK arrayIns DOLLAR
+       | BLOCK varInsAsig 
+       | BLOCK arrayInsAsign
+       | BLOCK inputStruc
+       | BLOCK printStruc DOLLAR
+       | BLOCK BREAK DOLLAR
+       | BLOCK RETURN exprP DOLLAR
+       | BLOCK RETURN DOLLAR
+       | exprP DOLLAR
+       | arrayIns DOLLAR
+       | arrayInsAsign
+       | mainStruc 
+       | funcStruc 
+       | varAsig    
+       | arrayInsGl DOLLAR
+       | varInsGl DOLLAR
+       | varInsAsigGl
+       | arrayInsAsignGl
+       | varInsAsig 
+       | varIns DOLLAR
+       | decideOfStruc 
+       | decideOfElseStruc
+       | switchStruc
+       | forStruc
+       | loopStruc
+       | printStruc DOLLAR
+       | BREAK DOLLAR
+       | RETURN exprP DOLLAR
+       | RETURN DOLLAR
+       | inputStruc
+       | error;
+
+
+numbers ::= INTEGER_LITERAL | FLOATNUM;
+
+//Operaciones aritmeticas simples entre dos numeros
+/* Reglas de producción para operaciones aritmeticas */
+compAritOp ::= term
+             | compAritOp MAS term   
+             | compAritOp MENOS term  
+
+term       ::= factor
+             | term MULTI factor               
+             | term POTENCIA factor 
+             | term DIV factor
+             | term FLOAT_DIV factor
+
+factor     ::= numbers
+             | MENOS numbers
+             | STRING_LITERAL
+             | CHARSTR
+             | IDENTIFIER 
+             | IDENTIFIER DMENOS     
+             | IDENTIFIER DMAS
+             | arrayElement
+             | paramList
+             | funcInvo
+             | MENOS UKRA compAritOp RUSS
+             | UKRA compAritOp RUSS;  
+
+
+inputStruc ::= INPUT UKRA IDENTIFIER RUSS DOLLAR;
+
+
+//Manejo de distintas expresiones de comparacion y union
+exprP ::=  exprP exprP
+      | exprLog 
+      | compAritOp        
+      | exprUni;
+
+exprLog ::= compAritOp opRel compAritOp
+        | UKRA exprLog RUSS
+        | opRel exprLog
+        | TRUE
+        | FALSE;
+
+exprUni ::= exprLog opLog exprP  
+        | IDENTIFIER opLog exprP            
+        | UKRA exprUni RUSS   
+
+opRel ::= GREATHER | LESS | MORE | LOWER | DIFF | COMPARA | NEGA;
+opLog ::= AND | OR;
+
+
+//Asignación de un valor a una variable
+varAsig      ::=  IDENTIFIER EQ exprP DOLLAR    
+             | EQ exprP DOLLAR;
+
+
+//Instanciacion simple de variables
+    varIns       ::= LOC LET INT IDENTIFIER     
+                 | LOC LET CHAR IDENTIFIER     
+                 | LOC LET FLOAT IDENTIFIER
+                 | LOC LET BOOL IDENTIFIER   
+                 | LOC LET STRINGT IDENTIFIER
+
+
+    varInsGl     ::=  GLOB LET INT IDENTIFIER
+                 | GLOB LET CHAR IDENTIFIER  
+                 | GLOB LET FLOAT IDENTIFIER  
+                 | GLOB LET STRINGT IDENTIFIER  
+                 | GLOB LET BOOL IDENTIFIER
+
+    varInsAsig   ::= varIns varAsig;
+
+    varInsAsigGl   ::= varInsGl varAsig;
+
+    
+    funInitial   ::= FUNC INT IDENTIFIER
+                 | FUNC CHAR IDENTIFIER
+                 | FUNC BOOL IDENTIFIER
+                 | FUNC STRINGT IDENTIFIER
+                 | FUNC FLOAT IDENTIFIER
+
+    //Declaracion inicial del bloque para las funciones
+    funcStruc    ::= funInitial INIT_BLOCK BLOCK RETURN DOLLAR END_BLOCK  
+                 | funInitial INIT_BLOCK BLOCK RETURN exprP DOLLAR END_BLOCK;  
+
+
+paramFunc    ::= exprP COMA paramFunc 
+             | exprP;
+
+funcInvo     ::= IDENTIFIER UKRA paramFunc RUSS
+             | IDENTIFIER UKRA RUSS;
+
+//Estructura decide of
+decideOfStruc ::= DECIDE_OF END_DECIDE DOLLAR
+decideOfStruc ::= DECIDE_OF UKRA exprP ARROW INIT_BLOCK BLOCK END_BLOCK RUSS END_DECIDE DOLLAR
+decideOfStruc ::= DECIDE_OF UKRA exprP ARROW INIT_BLOCK BLOCK END_BLOCK RUSS decideOfElseStruc END_DECIDE DOLLAR 
+decideOfStruc ::= DECIDE_OF decideOfBody END_DECIDE DOLLAR
+decideOfStruc ::= DECIDE_OF decideOfBody decideOfElseStruc END_DECIDE DOLLAR
+
+decideOfBody ::= decideOfBody decideOfBody
+decideOfBody ::= UKRA exprP ARROW INIT_BLOCK BLOCK END_BLOCK RUSS
+
+decideOfElseStruc ::= UKRA ELSE ARROW INIT_BLOCK BLOCK END_BLOCK RUSS DOLLAR
+decideOfElseStruc ::= decideOfStruc UKRA ELSE ARROW INIT_BLOCK BLOCK END_BLOCK RUSS DOLLAR
+
+
+//Produccion loop
+loopStruc ::= LOOP exprP EXIT_WHEN exprP DOLLAR END_LOOP DOLLAR  
+loopStruc ::= LOOP BLOCK EXIT_WHEN exprP DOLLAR END_LOOP DOLLAR 
+
+
+//Declaracion de estructura for
+forStruc ::= FOR varInsAsig STEP INT UKRA TO exprP DO INIT_BLOCK BLOCK END_BLOCK
+forStruc ::= FOR varInsAsig STEP INT UKRA DOWNTO exprP DO INIT_BLOCK BLOCK END_BLOCK
+
+//Declaracion, asignacion y acceso a un array
+arrayIns ::=  LOC INT ARRAY IDENTIFIER SQUARES INTEGER_LITERAL SQUAREC 
+            | LOC CHAR ARRAY IDENTIFIER SQUARES INTEGER_LITERAL SQUAREC
+
+//Array instancia global
+arrayInsGl ::=  GLOB INT ARRAY IDENTIFIER SQUARES INTEGER_LITERAL SQUAREC  
+            | GLOB CHAR ARRAY IDENTIFIER SQUARES INTEGER_LITERAL SQUAREC 
+
+//Declaracion de ARRAYS Y TODO LO RELACIONADO
+arrayAsig ::= IDENTIFIER EQ SQUARES elementos SQUAREC DOLLAR
+          | EQ SQUARES elementos SQUAREC DOLLAR;
+
+elementos ::= compAritOp COMA elementos| compAritOp;
+
+arrayInsAsign ::= arrayIns arrayAsig;
+
+arrayInsAsignGl ::= arrayInsGl arrayAsig;
+
+arrayElement ::= IDENTIFIER SQUARES INTEGER_LITERAL SQUAREC;
+
+
+//Declaracion de parametros
+paramStruc ::= PARAM INT IDENTIFIER
+      | PARAM CHAR IDENTIFIER
+      | PARAM STRINGT IDENTIFIER
+      | PARAM FLOAT IDENTIFIER
+      | PARAM BOOL IDENTIFIER
+
+paramList ::= paramStruc paramList
+       | paramStruc;
+
+
+printStruc ::= OUTPUT UKRA IDENTIFIER RUSS
+           | OUTPUT UKRA CHARSTR RUSS
+           | OUTPUT UKRA STRING_LITERAL RUSS;
