@@ -1,0 +1,430 @@
+import java_cup.runtime.*;
+import java.util.HashMap; 
+import java.util.List;
+import java.util.ArrayList;
+
+parser code {:
+    // Connect this parser to a scanner!
+    Lexer lex;
+    HashMap<String, ArrayList<String>> scopePrograma = new HashMap<String, ArrayList<String>>();
+    String currentHash;
+    String globalHash = "SCOPE GLOBAL";
+
+    @SuppressWarnings("deprecation")
+    public Parser(Lexer lex) {
+        this.lex = lex;
+        this.symbolFactory = new DefaultSymbolFactory();
+    }
+
+    public void imprimirscopePrograma () {
+        System.out.println("\nTABLA DE SIMBOLOS");
+        for (String key: scopePrograma.keySet()) {
+            System.out.println("\n" + key);
+            System.out.println("Valores: ");
+            for (String item : scopePrograma.get(key)) {
+             System.out.println(item);
+            }
+            System.out.println("");
+        }
+    }
+
+    // recuperación de errores de sintaxis (mejorada)
+    public void syntax_error(Symbol s) {
+        try {
+            if (s == null) {
+                String yy = "";
+                try { yy = lex.yytext(); } catch (Exception e) { yy = "<no-yytext>"; }
+                System.err.println("!!Error de Sintaxis: símbolo nulo (fin de fichero probable). yytext='" + yy + "'");
+                return;
+            }
+
+            int symId = s.sym;
+            Object val = s.value;
+            int left = s.left;
+            int right = s.right;
+            String yytext = "";
+            try { yytext = lex.yytext(); } catch (Exception e) { yytext = "<no-yytext>"; }
+
+            System.err.println("!!Error de Sintaxis: tokenId=" + symId + " value=" + val + " yytext='" + yytext + "' linea:" + (left>=0 ? (left+1) : "n/a") + " columna:" + (right>=0 ? (right+1) : "n/a"));
+
+        } catch (Exception e) {
+            System.err.println("!!Error de Sintaxis (excepción al informar): " + e.getMessage());
+        }
+    }
+
+    // manejo de errores fatales (mejorado)
+    public void unrecovered_syntax_error(Symbol s) {
+        try {
+            if (s == null) {
+                String yy = "";
+                try { yy = lex.yytext(); } catch (Exception e) { yy = "<no-yytext>"; }
+                System.err.println("!!Error fatal: símbolo nulo. yytext='" + yy + "'");
+                return;
+            }
+
+            int symId = s.sym;
+            Object val = s.value;
+            int left = s.left;
+            int right = s.right;
+            String yytext = "";
+            try { yytext = lex.yytext(); } catch (Exception e) { yytext = "<no-yytext>"; }
+
+            System.err.println("!!Error fatal: tokenId=" + symId + " value=" + val + " yytext='" + yytext + "' linea:" + (left>=0 ? (left+1) : "n/a") + " columna:" + (right>=0 ? (right+1) : "n/a"));
+
+        } catch (Exception e) {
+            System.err.println("!!Error fatal (excepción al informar): " + e.getMessage());
+        }
+    }
+:}
+
+/* define how to connect to the scanner! */
+//init with {: s.init(); :};
+//scan with {: return s.next_token(); :};
+init with {::};
+scan with {:return lex.next_token();:};
+
+
+/* Terminales (tokens returned by the scanner). */
+terminal            IDENTIFIER, MAS, MENOS, DMENOS, DMAS, MULTI, DIV, FLOAT_DIV, POTENCIA, INT_LITERAL;
+terminal            INIT_BLOCK, END_BLOCK, INIT_COMMENT, END_COMMENT, COMMENT, FUNC, PARAM, COMA, STRING_LITERAL;
+terminal            EQ, GREATHER, LOWER, MORE, LESS, COMPARA, DIFF, AND, OR, NEGA;
+terminal            INT, FLOAT, CHAR, BOOL, STRING, ARRAY;
+terminal            GLOBAL, LET, DOT;
+terminal            TRUE, FALSE;
+terminal            ELSE, FOR, DECIDE_OF, END_DECIDE, LOOP, END_LOOP, EXIT_WHEN, STEP, TO, DOWNTO, DO;
+terminal            BREAK, RETURN, INPUT, OUTPUT;
+terminal            PARENTS, PARENTC, SQUARES, SQUAREC;
+terminal            UKRA, RUSS, ARROW, MAIN, CHARSTR;
+terminal            DOLLAR; /* end of Expression */
+
+/* No terminales */
+non terminal            Integer expr;// used to store evaluated subexpressions
+non terminal            PROGRAMA, varIns, varAsig, BLOCK, compAritOp, factor, term, funcStruct, mainStruct, outPutStruct;
+non terminal            arrayIns, arrayAsig, arrayInsAsign, elementos, numbers;
+non terminal            decideOfCase, decideOfCases;
+non terminal            decideOfStruct, decideOfBody, decideOfElseStruct, loopStruct, forStruct;
+non terminal            inputStruct, mainInitial, funInitial, exprP, exprLog, exprUni, opRel, opLog, arrayElement, paramStruct, paramList, paramFunc, funcInvo, PRINCIPAL, arrayInsGl, varInsGl, varInsAsig, varInsAsigGl, arrayInsAsignGl;
+
+/* Orden de precedencia */
+precedence left MAS, MENOS;
+precedence left MULTI;
+precedence left DIV;
+
+/* The grammar rules */    
+
+start with PROGRAMA;
+
+PROGRAMA ::= {: scopePrograma.put(globalHash, new ArrayList<String>()); :} 
+    PRINCIPAL {: imprimirscopePrograma(); :};
+
+PRINCIPAL ::= funcStruct PRINCIPAL | mainStruct PRINCIPAL | arrayInsGl DOLLAR PRINCIPAL | varInsGl DOLLAR PRINCIPAL | varInsAsigGl
+    | varInsAsigGl PRINCIPAL | funcStruct | mainStruct | arrayInsGl DOLLAR | varInsGl DOLLAR | error PRINCIPAL
+    | arrayInsAsignGl PRINCIPAL | arrayInsAsignGl;  
+
+//Los distintos tipos que pueden tener una funcion o variable
+
+//Bloque que se usa para el codigo siga un rumbo, vease como la lista de posibles expresiones
+BLOCK  ::=  BLOCK exprP DOLLAR
+       | BLOCK varAsig 
+       | BLOCK arrayInsGl DOLLAR
+       | BLOCK varInsGl DOLLAR
+       | BLOCK varInsAsigGl
+       | BLOCK arrayInsAsignGl
+       | BLOCK mainStruct
+       | BLOCK funcStruct 
+       | BLOCK varIns DOLLAR
+       | BLOCK decideOfStruct 
+       | BLOCK decideOfElseStruct 
+       | BLOCK loopStruct  
+       | BLOCK forStruct 
+       | BLOCK arrayIns DOLLAR
+       | BLOCK varInsAsig 
+       | BLOCK arrayInsAsign
+       | BLOCK inputStruct DOLLAR
+       | BLOCK outPutStruct DOLLAR
+       | BLOCK BREAK DOLLAR
+       | BLOCK RETURN exprP DOLLAR
+       | BLOCK RETURN DOLLAR
+       | exprP DOLLAR
+       | arrayIns DOLLAR
+       | arrayInsAsign
+       | mainStruct
+       | funcStruct 
+       | varAsig    
+       | arrayInsGl DOLLAR
+       | varInsGl DOLLAR
+       | varInsAsigGl
+       | arrayInsAsignGl
+       | varInsAsig 
+       | varIns DOLLAR
+       | decideOfStruct 
+       | decideOfElseStruct
+       | forStruct
+       | loopStruct
+       | outPutStruct DOLLAR
+       | BREAK DOLLAR
+       | RETURN exprP DOLLAR
+       | RETURN DOLLAR
+       | inputStruct
+       | error;
+
+
+numbers ::= INT_LITERAL | FLOAT;
+
+//Operaciones aritmeticas simples entre dos numeros
+/* Reglas de producción para operaciones aritméticas */
+compAritOp ::= term
+             | compAritOp MAS term   {: System.out.println("Se hizo SUMA"); :}
+             | compAritOp MENOS term  {: System.out.println("Se hizo RESTA"); :};
+
+term       ::= factor
+             | term MULTI factor  {: System.out.println("Se hizo PRODUCTO"); :}
+             | term DIV factor {: System.out.println("Se hizo COCIENTE"); :}
+             | term POTENCIA factor {: System.out.println("Se hizo POTENCIA"); :}
+             | term FLOAT_DIV factor {: System.out.println("Se hizo MODULO"); :};
+
+factor     ::= numbers
+             | MENOS numbers
+             | STRING_LITERAL
+             | CHARSTR
+             | IDENTIFIER 
+             | IDENTIFIER DMENOS     
+             | IDENTIFIER DMAS
+             | arrayElement
+             | paramList
+             | funcInvo
+             | MENOS UKRA compAritOp RUSS
+             | UKRA compAritOp RUSS;  
+
+
+inputStruct ::= INPUT UKRA IDENTIFIER RUSS DOLLAR;
+
+
+//Manejo de distintas expresiones de comparacion y union
+exprP ::= exprLog 
+      | compAritOp        
+      | exprUni;
+
+exprLog ::= compAritOp opRel compAritOp
+        | UKRA exprLog RUSS
+        | opRel exprLog
+        | TRUE
+        | FALSE;
+
+exprUni ::= exprLog opLog exprP      {: System.out.println("Operacion logica realizada"); :}
+        | IDENTIFIER opLog exprP     {: System.out.println("Operacion logica localizada"); :}
+        | PARENTS exprUni PARENTC    {: System.out.println("Operacion unitaria"); :};
+
+opRel ::= GREATHER | LESS | MORE | LOWER | DIFF | COMPARA | NEGA;
+opLog ::= AND | OR;
+
+
+
+
+//Asignación de un valor a una variable
+varAsig      ::=  IDENTIFIER EQ exprP DOLLAR       {:System.out.println("Se asigno Variable");:}
+             | EQ exprP DOLLAR;
+
+
+//Instanciacion simple de variables
+    varIns       ::= LET INT IDENTIFIER:ID    {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "INT"); :}    
+                 | LET CHAR IDENTIFIER:ID     {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "CHAR"); :}      
+                 | LET FLOAT IDENTIFIER:ID    {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "FLOAT"); :}
+                 | LET BOOL IDENTIFIER:ID     {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "BOOL"); :}    
+                 | LET STRING IDENTIFIER:ID  {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "STRING"); :};
+
+
+
+    varInsGl     ::=  GLOBAL LET INT IDENTIFIER:ID     {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "INT"); :}
+                 | GLOBAL LET CHAR IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "CHAR"); :}
+                 | GLOBAL LET FLOAT IDENTIFIER:ID      {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "FLOAT"); :}
+                 | GLOBAL LET STRING IDENTIFIER:ID    {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "STRING"); :}
+                 | GLOBAL LET BOOL IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "BOOL"); :};
+
+    varInsAsig   ::= varIns varAsig;
+
+    varInsAsigGl   ::= varInsGl varAsig;
+
+    
+    funInitial   ::= FUNC INT IDENTIFIER:ID
+                            {:   String tipo;
+                                                             tipo = "tipo:func:INT";
+                                                             ArrayList<String> fun = new ArrayList<String>();
+                                                             currentHash = ID.toString();
+                                                             fun.add(tipo);
+                                                             scopePrograma.put(currentHash, fun);
+                            :}
+                 | FUNC CHAR IDENTIFIER:ID
+                            {:   String tipo;
+                                                             tipo = "tipo:func:CHAR";
+                                                             ArrayList<String> fun = new ArrayList<String>();
+                                                             currentHash = ID.toString();
+                                                             fun.add(tipo);
+                                                             scopePrograma.put(currentHash, fun);
+                            :}
+                 | FUNC BOOL IDENTIFIER:ID
+                            {:   String tipo;
+                                                             tipo = "tipo:func:BOOL";
+                                                             ArrayList<String> fun = new ArrayList<String>();
+                                                             currentHash = ID.toString();
+                                                             fun.add(tipo);
+                                                             scopePrograma.put(currentHash, fun);
+                            :}
+                 | FUNC STRING IDENTIFIER:ID
+                            {:   String tipo;
+                                                             tipo = "tipo:func:STRING";
+                                                             ArrayList<String> fun = new ArrayList<String>();
+                                                             currentHash = ID.toString();
+                                                             fun.add(tipo);
+                                                             scopePrograma.put(currentHash, fun);
+                            :}
+                 | FUNC FLOAT IDENTIFIER:ID
+                            {:   String tipo;
+                                                             tipo = "tipo:func:FLOAT";
+                                                             ArrayList<String> fun = new ArrayList<String>();
+                                                             currentHash = ID.toString();
+                                                             fun.add(tipo);
+                                                             scopePrograma.put(currentHash, fun);
+                            :};
+
+    //Declaracion inicial del bloque para las funciones
+    funcStruct    ::= 
+                 // funcion con return sin contenido
+                 funInitial INIT_BLOCK BLOCK RETURN DOLLAR END_BLOCK  
+
+                 // funcion con return con contenido  
+                 | funInitial INIT_BLOCK BLOCK RETURN exprP DOLLAR END_BLOCK;  
+
+paramFunc    ::= exprP COMA paramFunc 
+             | exprP;
+
+funcInvo     ::= IDENTIFIER UKRA paramFunc RUSS
+             | IDENTIFIER UKRA RUSS;
+
+mainInitial  ::= FUNC INT MAIN 
+                            {:                       String tipo;
+                                                         tipo = "tipo:MAIN:INT";
+                                                         ArrayList<String> fun = new ArrayList<String>();
+                                                         currentHash = "MAIN";
+                                                         fun.add(tipo);
+                                                         scopePrograma.put(currentHash, fun);
+                            :};
+
+mainStruct  ::= mainInitial INIT_BLOCK RETURN DOLLAR END_BLOCK  
+             | mainInitial INIT_BLOCK BLOCK RETURN exprP DOLLAR END_BLOCK;
+
+//Estructura decide of
+decideOfStruct ::= DECIDE_OF decideOfCases END_DECIDE DOLLAR;
+
+decideOfCases ::= /* empty */ {:System.out.println("Se declaro estructura decide of sin cuerpo");:}
+                | decideOfCase 
+                | decideOfCase decideOfElseStruct;
+
+decideOfCase ::= UKRA exprP ARROW INIT_BLOCK BLOCK END_BLOCK RUSS {:System.out.println("Se declaro caso de decide of");:}
+               | decideOfCase UKRA exprP ARROW INIT_BLOCK BLOCK END_BLOCK RUSS;
+
+decideOfElseStruct ::= UKRA ELSE ARROW INIT_BLOCK BLOCK END_BLOCK RUSS {:System.out.println("Se declaro else de decide of");:};
+
+                  
+//Produccion loop
+loopStruct ::= LOOP exprP EXIT_WHEN exprP DOLLAR END_LOOP DOLLAR  {:System.out.println("Se declaro estructura loop con expresion");:}
+            | LOOP BLOCK EXIT_WHEN exprP DOLLAR END_LOOP DOLLAR {:System.out.println("Se declaro estructura loop con bloque");:};
+ 
+
+//Declaracion de estructura for
+forStruct ::= FOR varInsAsig STEP INT UKRA TO exprP DO INIT_BLOCK BLOCK END_BLOCK {:System.out.println("Se declaro estructura for con to");:}
+           | FOR varInsAsig STEP INT UKRA DOWNTO exprP DO INIT_BLOCK BLOCK END_BLOCK {:System.out.println("Se declaro estructura for con downto");:};
+
+
+//Declaracion, asignacion y acceso a un array
+arrayIns ::=  INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(currentHash).add("Instancia local ARR: " + ID.toString() + ":" + "INT"); :}
+            | CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(currentHash).add("Instancia local ARR: " + ID.toString() + ":" + "CHAR"); :};
+
+//Declaracion global de array
+arrayInsGl ::=  GLOBAL INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC  {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "INT"); :}
+            | GLOBAL CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "CHAR"); :};
+
+//Declaracion de ARRAYS Y TODO LO RELACIONADO
+arrayAsig ::= IDENTIFIER EQ SQUARES elementos SQUAREC DOLLAR
+          | EQ SQUARES elementos SQUAREC DOLLAR;
+
+elementos ::= compAritOp COMA elementos| compAritOp;
+
+arrayInsAsign ::= arrayIns arrayAsig;
+
+arrayInsAsignGl ::= arrayInsGl arrayAsig;
+
+arrayElement ::= IDENTIFIER SQUARES INT_LITERAL SQUAREC;
+
+//Declaracion de parametros
+paramStruct ::= PARAM INT IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "INT"); :}
+      | PARAM CHAR IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "CHAR"); :}
+      | PARAM STRING IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "STRING"); :}
+      | PARAM FLOAT IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "FLOAT"); :}
+      | PARAM BOOL IDENTIFIER:ID  {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "BOOL"); :};
+
+paramList ::= paramStruct paramList
+       | paramStruct;
+
+
+outPutStruct ::= OUTPUT UKRA IDENTIFIER RUSS
+           | OUTPUT UKRA CHARSTR RUSS
+           | OUTPUT UKRA STRING_LITERAL RUSS;
+
+//Manejo de errores
+
+error ::= 
+    error DOLLAR {: System.out.println("Error de sintaxis: se esperaba $ "); :}
+    | error IDENTIFIER {: System.out.println("Error de sintaxis: se esperaba un identificador "); :}
+    | error MAS {: System.out.println("Error de sintaxis: se esperaba + "); :}
+    | error MENOS {: System.out.println("Error de sintaxis: se esperaba - "); :}
+    | error MULTI {: System.out.println("Error de sintaxis: se esperaba * "); :}
+    | error DIV {: System.out.println("Error de sintaxis: se esperaba / "); :}
+    | error POTENCIA {: System.out.println("Error de sintaxis: se esperaba ^ "); :}
+    | error FLOAT_DIV {: System.out.println("Error de sintaxis: se esperaba // "); :}
+    | error STRING {: System.out.println("Error de sintaxis: se esperaba un string "); :}
+    | error EQ {: System.out.println("Error de sintaxis: se esperaba = "); :}
+    | error COMPARA {: System.out.println("Error de sintaxis: se esperaba == "); :}
+    | error BOOL {: System.out.println("Error de sintaxis: se esperaba una expresion booleana "); :}
+    | error INT {: System.out.println("Error de sintaxis: se esperaba int "); :}
+    | error CHAR {: System.out.println("Error de sintaxis: se esperaba char "); :}
+    | error BREAK {: System.out.println("Error de sintaxis: se esperaba break "); :}
+    | error INT_LITERAL {: System.out.println("Error de sintaxis: La expresion no corresponde con un numero "); :}
+    | error FLOAT {: System.out.println("Error de sintaxis: La expresion debe ser un numero flotante "); :}
+    | error TRUE {: System.out.println("Error de sintaxis: se esperaba true "); :}
+    | error FALSE {: System.out.println("Error de sintaxis: se esperaba false "); :}
+    | error INIT_BLOCK {: System.out.println("Error de sintaxis: se esperaba ¿ "); :}
+    | error END_BLOCK {: System.out.println("Error de sintaxis: se esperaba ? "); :}
+    | error END_BLOCK {: System.out.println("Error de sintaxis: se esperaba ? "); :}
+    | error ELSE {: System.out.println("Error de sintaxis: se esperaba else "); :}
+    | error DECIDE_OF {: System.out.println("Error de sintaxis: se esperaba decide of "); :}
+    | error END_DECIDE {: System.out.println("Error de sintaxis: se esperaba end decide "); :}
+    | error ARROW {: System.out.println("Error de sintaxis: se esperaba -> "); :}
+    | error LOOP {: System.out.println("Error de sintaxis: se esperaba loop "); :}
+    | error EXIT_WHEN {: System.out.println("Error de sintaxis: se esperaba exit when "); :}
+    | error END_LOOP {: System.out.println("Error de sintaxis: se esperaba end loop "); :}
+    | error STEP {: System.out.println("Error de sintaxis: se esperaba step "); :}
+    | error TO {: System.out.println("Error de sintaxis: se esperaba to "); :}          
+    | error DOWNTO {: System.out.println("Error de sintaxis: se esperaba downto "); :}
+    | error DO {: System.out.println("Error de sintaxis: se esperaba do "); :}
+    | error FOR {: System.out.println("Error de sintaxis: se esperaba for "); :}
+    | error GREATHER {: System.out.println("Error de sintaxis: se esperaba > "); :}
+    | error LOWER {: System.out.println("Error de sintaxis: se esperaba < "); :}
+    | error MORE {: System.out.println("Error de sintaxis: se esperaba >= "); :}
+    | error LESS {: System.out.println("Error de sintaxis: se esperaba <= "); :}
+    | error COMPARA {: System.out.println("Error de sintaxis: se esperaba == "); :}
+    | error DIFF {: System.out.println("Error de sintaxis: se esperaba != "); :}
+    | error NEGA {: System.out.println("Error de sintaxis: se esperaba Σ "); :}
+    | error AND {: System.out.println("Error de sintaxis: se esperaba @ "); :}
+    | error OR {: System.out.println("Error de sintaxis: se esperaba ~ "); :}
+    | error FUNC {: System.out.println("Error de sintaxis: se esperaba func "); :}
+    | error MAIN {: System.out.println("Error de sintaxis: se esperaba main "); :}
+    | error PARAM {: System.out.println("Error de sintaxis: se esperaba un parametro "); :}
+    | error PARENTS {: System.out.println("Error de sintaxis: se esperaba ( "); :}
+    | error PARENTC {: System.out.println("Error de sintaxis: se esperaba ) "); :}
+    | error SQUARES {: System.out.println("Error de sintaxis: se esperaba [ "); :}
+    | error SQUAREC {: System.out.println("Error de sintaxis: se esperaba ] "); :}
+    | error GLOBAL {: System.out.println("Error de sintaxis: se esperaba global "); :}
+    | error RETURN {: System.out.println("Error de sintaxis: se esperaba return "); :}
+    | error OUTPUT {: System.out.println("Error de sintaxis: se esperaba output "); :}
+    | error INPUT {: System.out.println("Error de sintaxis: se esperaba input "); :};

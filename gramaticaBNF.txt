@@ -1,4 +1,3 @@
-abstract ::= ABSTRACT
 Boolean ::= BOOLEAN
 break ::= BREAK
 
@@ -65,7 +64,7 @@ do ::= DO
 Σ ::= NEGA 
 
 | ::= COMMENT
-! ::= INIT_COMENT
+! ::= INIT_COMMENT
 ¡ ::= END_COMMENT
 
 programa ::= PROGRAMA
@@ -116,7 +115,6 @@ BLOCK  ::=  BLOCK exprP DOLLAR
        | BLOCK decideOfStruc 
        | BLOCK decideOfElseStruc 
        | BLOCK loopStruc 
-       | BLOCK switchStruc 
        | BLOCK forStruc 
        | BLOCK arrayIns DOLLAR
        | BLOCK varInsAsig 
@@ -139,8 +137,8 @@ BLOCK  ::=  BLOCK exprP DOLLAR
        | varInsAsig 
        | varIns DOLLAR
        | decideOfStruc 
+       | decideOfBody 
        | decideOfElseStruc
-       | switchStruc
        | forStruc
        | loopStruc
        | printStruc DOLLAR
@@ -301,3 +299,7 @@ paramList ::= paramStruc paramList
 printStruc ::= OUTPUT UKRA IDENTIFIER RUSS
            | OUTPUT UKRA CHARSTR RUSS
            | OUTPUT UKRA STRING_LITERAL RUSS;
+
+comment ::= COMMENT STRING
+block_comment ::= INIT_COMMENT STRING END_COMMENT
+commentario ::= comment | block_comment
