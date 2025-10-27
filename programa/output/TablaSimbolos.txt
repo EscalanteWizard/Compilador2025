@@ -1,0 +1,4 @@
+Scope,Name,Type,Line,Column
+SCOPE GLOBAL,x,INT,1,9
+SCOPE GLOBAL,x,INT,3,16
+SCOPE GLOBAL,i,CHAR,4,10

@@ -1,3 +1,15 @@
 Token: 38 let
 Token: 31 int
-Token: 2 x$
+Token: 2 x
+Token: 66 $
+Token: 37 global
+Token: 38 let
+Token: 31 int
+Token: 2 x
+Token: 21 =
+Token: 11 1
+Token: 66 $
+Token: 38 let
+Token: 33 char
+Token: 2 i
+Token: 66 $

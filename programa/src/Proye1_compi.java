@@ -85,18 +85,64 @@ public class Proye1_compi {
             int i = 0;
             Symbol token;
             StringBuilder tokens = new StringBuilder();
+            StringBuilder tabla = new StringBuilder();
+
+            // Build reverse map tokenId -> name using reflection on sym
+            java.util.Map<Integer,String> tokenNames = new java.util.HashMap<Integer,String>();
+            try {
+                for (java.lang.reflect.Field f : sym.class.getFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                        Object val = f.get(null);
+                        if (val instanceof Integer) tokenNames.put((Integer)val, f.getName());
+                    }
+                }
+            } catch (Exception e) {
+                // ignore, fallback to numeric ids
+            }
+
+            // Header for TablaSimbolos
+            tabla.append("Tabla de Simbolos - Lista de tokens (Scope: SCOPE GLOBAL)\n");
+            tabla.append("NombreLexema,TipoToken,Linea,Columna\n");
+
             while (true) {
                 token = lex.next_token();
                 if (token.sym != 0) {
-                    System.out.println("Token: " + token.sym + " " + (token.value == null ? lex.yytext() : token.value.toString()));
-                    tokens.append("Token: " + token.sym + " " + (token.value == null ? lex.yytext() : token.value.toString()) + "\n");
+                    String lexeme = (token.value == null ? lex.getYYText() : token.value.toString());
+                    String tname = tokenNames.containsKey(token.sym) ? tokenNames.get(token.sym) : Integer.toString(token.sym);
+                    int line = -1, col = -1;
+                    try { line = lex.getLine(); col = lex.getColumn(); } catch (Exception ex) { /* ignore */ }
+                    // make 1-based for human readers
+                    String lineStr = (line >= 0 ? Integer.toString(line+1) : "n/a");
+                    String colStr = (col >= 0 ? Integer.toString(col+1) : "n/a");
+
+                    System.out.println("Token: " + token.sym + " " + lexeme + " (" + tname + ") at " + lineStr + ":" + colStr);
+                    tokens.append("Token: " + token.sym + " " + lexeme + "\n");
+
+                    // append to TablaSimbolos.csv-like
+                    tabla.append(escapeCsv(lexeme) + "," + tname + "," + lineStr + "," + colStr + "\n");
                 } else {
                     System.out.println("Cantidad de lexemas encontrados: " + i);
+                    // write TablaSimbolos to output folder
+                    Path out = Paths.get(Paths.get("").toAbsolutePath().toString(), "programa", "output");
+                    Files.createDirectories(out);
+                    Path tablaFile = out.resolve("TablaSimbolos.txt");
+                    try (FileWriter fw = new FileWriter(tablaFile.toFile())) {
+                        fw.write(tabla.toString());
+                    }
+                    System.out.println("Tabla de simbolos escrita en: " + tablaFile.toAbsolutePath().toString());
                     return tokens.toString(); // Convertir StringBuilder a String antes de devolverlo
                 }
                 i++;
             }
         }
+    }
+
+    private static String escapeCsv(String s) {
+        if (s == null) return "";
+        if (s.contains(",") || s.contains("\"") || s.contains("\n")) {
+            return "\"" + s.replace("\"", "\"\"") + "\"";
+        }
+        return s;
     }
 
     /* Método para escribir en un archivo 
@@ -121,10 +167,27 @@ public class Proye1_compi {
      * Si ocurre un error durante el análisis léxico o sintáctico, se lanza una excepción.
     */
     public static void test2(String ruta) throws IOException, Exception {
-        try (Reader reader = new BufferedReader(new FileReader(ruta))) {
+        Reader reader = null;
+        Parser myParser = null;
+        try {
+            reader = new BufferedReader(new FileReader(ruta));
             Lexer lex = new Lexer(reader);  // Crea un analizador léxico para el archivo
-            Parser myParser = new Parser(lex);  // Crea un analizador sintáctico y le pasa el analizador léxico
+            myParser = new Parser(lex);  // Crea un analizador sintáctico y le pasa el analizador léxico
             myParser.parse();  // Parsea el contenido del archivo
+        } catch (Exception e) {
+            System.err.println("Exception during parse: " + e.getMessage());
+        } finally {
+            // Intentar exportar las tablas de simbolos aunque haya ocurrido un error de parseo
+            try {
+                if (myParser != null) {
+                    myParser.imprimirscopePrograma();
+                }
+            } catch (Exception ex) {
+                System.err.println("Error exportando tablas de simbolos: " + ex.getMessage());
+            }
+            if (reader != null) {
+                try { reader.close(); } catch (IOException e) { /* ignore */ }
+            }
         }
     }
 }

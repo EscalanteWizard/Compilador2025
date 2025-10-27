@@ -2,6 +2,14 @@ import java_cup.runtime.*;
 import java.util.HashMap; 
 import java.util.List;
 import java.util.ArrayList;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 parser code {:
     // Connect this parser to a scanner!
@@ -17,14 +25,58 @@ parser code {:
     }
 
     public void imprimirscopePrograma () {
-        System.out.println("\nTABLA DE SIMBOLOS");
-        for (String key: scopePrograma.keySet()) {
-            System.out.println("\n" + key);
-            System.out.println("Valores: ");
-            for (String item : scopePrograma.get(key)) {
-             System.out.println(item);
+        System.out.println("\nTABLA DE SIMBOLOS (resumen)");
+        try {
+            Path outDir = Paths.get(System.getProperty("user.dir"), "programa", "output");
+            Files.createDirectories(outDir);
+
+            // Ensure there is at least a global scope entry so a file is produced even
+            // when parsing didn't reach the start action that initializes scopes.
+            if (scopePrograma.isEmpty()) {
+                scopePrograma.put(globalHash, new ArrayList<String>());
             }
-            System.out.println("");
+
+            // write a single consolidated TablaSimbolos.txt with columns: Scope,Name,Type,Line,Column
+            Path tablaFile = outDir.resolve("TablaSimbolos.txt");
+            Pattern p = Pattern.compile(".*:\s*([^:]+):([^:]+)(:line=(\\d+):col=(\\d+))?.*");
+            try (FileWriter fw = new FileWriter(tablaFile.toFile())) {
+                fw.write("Scope,Name,Type,Line,Column\n");
+                for (String key: scopePrograma.keySet()) {
+                    System.out.println("Scope: " + key + "  (" + scopePrograma.get(key).size() + " entradas)");
+                    for (String item : scopePrograma.get(key)) {
+                        String name="", type="", line="n/a", col="n/a";
+                        // try to extract name and type by splitting on ':' and looking for known type tokens
+                        String[] parts = item.split(":");
+                        if (parts.length >= 2) {
+                            name = parts[1].trim();
+                        }
+                        if (parts.length >= 3) {
+                            // find a part that matches a known type (prefer the first following the name)
+                            for (int i = 2; i < parts.length; i++) {
+                                String ppart = parts[i].trim();
+                                if (ppart.equals("INT") || ppart.equals("CHAR") || ppart.equals("FLOAT") || ppart.equals("BOOL") || ppart.equals("STRING") || ppart.equals("ARR") || ppart.startsWith("tipo:") || ppart.equals("MAIN")) {
+                                    type = ppart;
+                                    break;
+                                }
+                            }
+                            // fallback: use the immediate next part
+                            if (type.isEmpty()) type = parts[2].trim();
+                        }
+
+                        // find line/col anywhere in the item string
+                        Matcher ml = Pattern.compile("line=(\\d+)").matcher(item);
+                        if (ml.find()) line = ml.group(1);
+                        Matcher mc = Pattern.compile("col=(\\d+)").matcher(item);
+                        if (mc.find()) col = mc.group(1);
+
+                        fw.write(key + "," + name + "," + type + "," + line + "," + col + "\n");
+                    }
+                }
+            }
+
+            System.out.println("Tablas de simbolos exportadas a: " + outDir.toAbsolutePath().toString());
+        } catch (Exception e) {
+            System.err.println("Error al exportar tablas de simbolos: " + e.getMessage());
         }
     }
 
@@ -117,8 +169,8 @@ start with PROGRAMA;
 PROGRAMA ::= {: scopePrograma.put(globalHash, new ArrayList<String>()); :} 
     PRINCIPAL {: imprimirscopePrograma(); :};
 
-PRINCIPAL ::= funcStruct PRINCIPAL | mainStruct PRINCIPAL | arrayInsGl DOLLAR PRINCIPAL | varInsGl DOLLAR PRINCIPAL | varInsAsigGl
-    | varInsAsigGl PRINCIPAL | funcStruct | mainStruct | arrayInsGl DOLLAR | varInsGl DOLLAR | error PRINCIPAL
+PRINCIPAL ::= funcStruct PRINCIPAL | mainStruct PRINCIPAL | arrayInsGl DOLLAR PRINCIPAL | varInsGl DOLLAR PRINCIPAL | varIns DOLLAR PRINCIPAL | varInsAsigGl
+    | varInsAsigGl PRINCIPAL | funcStruct | mainStruct | arrayInsGl DOLLAR | varInsGl DOLLAR | varIns DOLLAR | error PRINCIPAL
     | arrayInsAsignGl PRINCIPAL | arrayInsAsignGl;  
 
 //Los distintos tipos que pueden tener una funcion o variable
@@ -227,19 +279,19 @@ varAsig      ::=  IDENTIFIER EQ exprP DOLLAR       {:System.out.println("Se asig
 
 
 //Instanciacion simple de variables
-    varIns       ::= LET INT IDENTIFIER:ID    {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "INT"); :}    
-                 | LET CHAR IDENTIFIER:ID     {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "CHAR"); :}      
-                 | LET FLOAT IDENTIFIER:ID    {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "FLOAT"); :}
-                 | LET BOOL IDENTIFIER:ID     {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "BOOL"); :}    
-                 | LET STRING IDENTIFIER:ID  {: scopePrograma.get(currentHash).add("Instancia: " + ID.toString() + ":" + "STRING"); :};
+    varIns       ::= LET INT IDENTIFIER:ID    {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}    
+                 | LET CHAR IDENTIFIER:ID     {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}      
+                 | LET FLOAT IDENTIFIER:ID    {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "FLOAT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+                 | LET BOOL IDENTIFIER:ID     {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "BOOL" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}    
+                 | LET STRING IDENTIFIER:ID  {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "STRING" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
 
 
 
-    varInsGl     ::=  GLOBAL LET INT IDENTIFIER:ID     {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "INT"); :}
-                 | GLOBAL LET CHAR IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "CHAR"); :}
-                 | GLOBAL LET FLOAT IDENTIFIER:ID      {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "FLOAT"); :}
-                 | GLOBAL LET STRING IDENTIFIER:ID    {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "STRING"); :}
-                 | GLOBAL LET BOOL IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "BOOL"); :};
+    varInsGl     ::=  GLOBAL LET INT IDENTIFIER:ID     {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+                 | GLOBAL LET CHAR IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+                 | GLOBAL LET FLOAT IDENTIFIER:ID      {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "FLOAT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+                 | GLOBAL LET STRING IDENTIFIER:ID    {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "STRING" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+                 | GLOBAL LET BOOL IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "BOOL" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
 
     varInsAsig   ::= varIns varAsig;
 
@@ -337,12 +389,12 @@ forStruct ::= FOR varInsAsig STEP INT UKRA TO exprP DO INIT_BLOCK BLOCK END_BLOC
 
 
 //Declaracion, asignacion y acceso a un array
-arrayIns ::=  INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(currentHash).add("Instancia local ARR: " + ID.toString() + ":" + "INT"); :}
-            | CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(currentHash).add("Instancia local ARR: " + ID.toString() + ":" + "CHAR"); :};
+arrayIns ::=  INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia local ARR: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+            | CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia local ARR: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
 
 //Declaracion global de array
-arrayInsGl ::=  GLOBAL INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC  {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "INT"); :}
-            | GLOBAL CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "CHAR"); :};
+arrayInsGl ::=  GLOBAL INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC  {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+            | GLOBAL CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
 
 //Declaracion de ARRAYS Y TODO LO RELACIONADO
 arrayAsig ::= IDENTIFIER EQ SQUARES elementos SQUAREC DOLLAR
@@ -357,11 +409,11 @@ arrayInsAsignGl ::= arrayInsGl arrayAsig;
 arrayElement ::= IDENTIFIER SQUARES INT_LITERAL SQUAREC;
 
 //Declaracion de parametros
-paramStruct ::= PARAM INT IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "INT"); :}
-      | PARAM CHAR IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "CHAR"); :}
-      | PARAM STRING IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "STRING"); :}
-      | PARAM FLOAT IDENTIFIER:ID {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "FLOAT"); :}
-      | PARAM BOOL IDENTIFIER:ID  {: scopePrograma.get(currentHash).add("Instancia PARAM: " + ID.toString() + ":" + "BOOL"); :};
+paramStruct ::= PARAM INT IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM CHAR IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM STRING IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "STRING" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM FLOAT IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "FLOAT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM BOOL IDENTIFIER:ID  {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "BOOL" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
 
 paramList ::= paramStruct paramList
        | paramStruct;

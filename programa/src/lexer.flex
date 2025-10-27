@@ -16,10 +16,12 @@ import java_cup.runtime.*;
   StringBuffer string = new StringBuffer();
 
   private Symbol symbol(int type) {
-    return new Symbol(type);
+    // attach current lexer line/column so CUP actions get left/right
+    return new Symbol(type, yyline, yycolumn, null);
   }
   private Symbol symbol(int type, Object value) {
-    return new Symbol(type, value);
+    // attach current lexer line/column and carry the value
+    return new Symbol(type, yyline, yycolumn, value);
   }
   // helper when lexer wants to supply line/column info
   private Symbol symbol(int type, int left, int right) {
@@ -29,6 +31,19 @@ import java_cup.runtime.*;
 
   private Symbol symbol(int type, int left, int right, Object value) {
     return new Symbol(type, left, right, value);
+  }
+
+  // expose current position and yytext to callers
+  public int getLine() {
+    return yyline;
+  }
+
+  public int getColumn() {
+    return yycolumn;
+  }
+
+  public String getYYText() {
+    return yytext();
   }
 %}
 
@@ -45,7 +60,8 @@ EndOfLineComment     = "//" {InputCharacter}* {LineTerminator}?
 DocumentationComment = "/**" {CommentContent} "*"+ "/"
 CommentContent       = ( [^*] | \*+ [^/*] )*
 
-Identifier = [:jletter:] [:jletterdigit:]*
+// Restrict identifiers to ASCII letters, digits and underscore (avoid including '$' in identifiers)
+Identifier = [A-Za-z_][A-Za-z0-9_]*
 
 DecIntegerLiteral = 0 | [1-9][0-9]*
 
