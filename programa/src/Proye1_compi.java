@@ -12,6 +12,11 @@ import java.nio.file.Paths;
 import java_cup.runtime.Symbol;
 
 public class Proye1_compi {
+    /*
+     * @param args the command line arguments       
+     * @throws Exception
+     * Si ocurre un error durante el análisis léxico o sintáctico, se lanza una excepción.
+     */
     public static void main(String[] args) throws Exception {
         Path currentPath = Paths.get("");
         String currentDirectory = currentPath.toAbsolutePath().toString();
@@ -32,6 +37,10 @@ public class Proye1_compi {
         test2(inputPath);
     }
 
+    /* Método para analizar léxico 
+     * @param ruta Ruta del archivo a analizar
+     * @return String con los tokens encontrados
+    */
     public static String analizarLexico(String ruta) throws Exception {
         try (Reader reader = new BufferedReader(new FileReader(ruta))) {
             Lexer lex = new Lexer(reader);
@@ -52,6 +61,11 @@ public class Proye1_compi {
         }
     }
 
+    /* Método para analizar sintáctico
+     * @param ruta Ruta del archivo a analizar
+     * @throws Exception
+     * Si ocurre un error durante el análisis léxico o sintáctico, se lanza una excepción.
+    */
     public static void analizarSintactico(String ruta) throws Exception {
         try (Reader reader = new BufferedReader(new FileReader(ruta))) {
             Lexer lex = new Lexer(reader);
@@ -59,7 +73,12 @@ public class Proye1_compi {
             parser.parse();
         }
     }
-    
+
+    /* Método para analizar léxico
+     * @param ruta Ruta del archivo a analizar
+     * @throws Exception
+     * Si ocurre un error durante el análisis léxico, se lanza una excepción.
+    */
     public static String test1(String ruta) throws FileNotFoundException, IOException, Exception {
         try (Reader reader = new BufferedReader(new FileReader(ruta))) {
             Lexer lex = new Lexer(reader);
@@ -80,7 +99,10 @@ public class Proye1_compi {
         }
     }
 
-    
+    /* Método para escribir en un archivo 
+     * @param filename Nombre del archivo
+     * @param content Contenido a escribir
+    */
     public static void WriteToFile(String filename, String content) throws IOException {
         File file = new File(filename);
         File parent = file.getParentFile();
@@ -93,7 +115,11 @@ public class Proye1_compi {
         }   
     }
 
-    
+    /* Método para analizar sintáctico
+     * @param ruta Ruta del archivo a analizar
+     * @throws Exception
+     * Si ocurre un error durante el análisis léxico o sintáctico, se lanza una excepción.
+    */
     public static void test2(String ruta) throws IOException, Exception {
         try (Reader reader = new BufferedReader(new FileReader(ruta))) {
             Lexer lex = new Lexer(reader);  // Crea un analizador léxico para el archivo
