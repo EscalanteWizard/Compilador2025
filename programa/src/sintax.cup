@@ -1,5 +1,9 @@
 import java_cup.runtime.*;
 import java.util.HashMap; 
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Deque;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.ArrayList;
 import java.io.File;
@@ -12,75 +16,1053 @@ import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
 parser code {:
-    // Connect this parser to a scanner!
     Lexer lex;
-    HashMap<String, ArrayList<String>> scopePrograma = new HashMap<String, ArrayList<String>>();
+    HashMap<String, ArrayList<String>> scopePrograma = new HashMap<>();
+    HashMap<String, LinkedHashMap<String, SymbolInfo>> semanticScopes = new HashMap<>();
+    HashMap<String, FunctionInfo> functionTable = new HashMap<>();
+    ArrayDeque<String> decideEndStack = new ArrayDeque<>();
+    ArrayDeque<String> decideNextStack = new ArrayDeque<>();
+    ArrayDeque<String> loopStartStack = new ArrayDeque<>();
+    ArrayDeque<String> loopEndStack = new ArrayDeque<>();
+    ArrayList<String> semanticErrors = new ArrayList<>();
+    StringBuilder cod3D = new StringBuilder();
     String currentHash;
     String globalHash = "SCOPE GLOBAL";
+    int tempCounter = 0;
+    int labelCounter = 0;
+    boolean artifactsExported = false;
 
+    static class SymbolInfo {
+        final String name;
+        final String type;
+        final boolean isArray;
+        final int arraySize;
+        final boolean isParam;
+        final boolean isGlobal;
+        final int line;
+        final int col;
+
+        SymbolInfo(String name, String type, boolean isArray, int arraySize,
+                   boolean isParam, boolean isGlobal, int line, int col) {
+            this.name = name;
+            this.type = type;
+            this.isArray = isArray;
+            this.arraySize = arraySize;
+            this.isParam = isParam;
+            this.isGlobal = isGlobal;
+            this.line = line;
+            this.col = col;
+        }
+    }
+
+    static class FunctionInfo {
+        final String name;
+        final String returnType;
+        final ArrayList<SymbolInfo> params = new ArrayList<>();
+        boolean hasReturn = false;
+
+        FunctionInfo(String name, String returnType) {
+            this.name = name;
+            this.returnType = returnType;
+        }
+    }
+
+    static class ExprAttr {
+        final String place;
+        final String type;
+        final boolean constant;
+        final String location;      // describe el l-value (por ejemplo arr[idx]) cuando aplica
+        final SymbolInfo symbolInfo; // referencia al simbolo propietario (para arreglos)
+        final String indexPlace;    // expresion que se usa para indexar arreglos
+
+        ExprAttr(String place, String type, boolean constant) {
+            this(place, type, constant, null, null, null);
+        }
+
+        ExprAttr(String place, String type, boolean constant, String location,
+                 SymbolInfo symbolInfo, String indexPlace) {
+            this.place = place;
+            this.type = type;
+            this.constant = constant;
+            this.location = location;
+            this.symbolInfo = symbolInfo;
+            this.indexPlace = indexPlace;
+        }
+
+        static ExprAttr invalid() {
+            return new ExprAttr("__err", "ERROR", true);
+        }
+
+        boolean isValid() {
+            return place != null && type != null && !"ERROR".equals(type);
+        }
+
+        boolean isNumeric() {
+            return "INT".equals(type) || "FLOAT".equals(type);
+        }
+
+        boolean isBoolean() {
+            return "BOOL".equals(type);
+        }
+
+        boolean isArrayReference() {
+            return location != null && symbolInfo != null && indexPlace != null;
+        }
+    }
+
+    static class ForContext {
+        final String target;
+        final String type;
+        final ExprAttr step;
+        final ExprAttr limit;
+        final boolean downto;
+        final String condLabel;
+        final String endLabel;
+
+        ForContext(String target, String type, ExprAttr step, ExprAttr limit, boolean downto, String condLabel, String endLabel) {
+            this.target = target;
+            this.type = type;
+            this.step = step;
+            this.limit = limit;
+            this.downto = downto;
+            this.condLabel = condLabel;
+            this.endLabel = endLabel;
+        }
+    }
+
+    ArrayDeque<ForContext> forStack = new ArrayDeque<>();
+
+    /**
+     * Proposito: construir el parser e inicializar las estructuras de alcance.
+     * Entradas: instancia de Lexer generada por JFlex que entrega los tokens.
+     * Salidas: parser listo para usarse con fabrica de simbolos y alcance global cargado.
+     * Restricciones: la referencia al lexer no debe ser nula.
+     */
     @SuppressWarnings("deprecation")
     public Parser(Lexer lex) {
         this.lex = lex;
         this.symbolFactory = new DefaultSymbolFactory();
+        initializeGlobalScope();
     }
 
+    /**
+     * Proposito: garantizar que el alcance global exista antes de cualquier declaracion.
+     * Entradas: ninguna; usa los campos internos del parser.
+     * Salidas: registros creados para globalHash dentro de scopePrograma y semanticScopes.
+     * Restricciones: idealmente se ejecuta una sola vez en la inicializacion.
+     */
+    private void initializeGlobalScope() {
+        if (!scopePrograma.containsKey(globalHash)) {
+            scopePrograma.put(globalHash, new ArrayList<>());
+        }
+        if (!semanticScopes.containsKey(globalHash)) {
+            semanticScopes.put(globalHash, new LinkedHashMap<>());
+        }
+    }
+
+    /**
+     * Proposito: crear bajo demanda los contenedores asociados a un alcance.
+     * Entradas: nombre del alcance que se desea preparar.
+     * Salidas: registros inicializados en scopePrograma y semanticScopes.
+     * Restricciones: el nombre del alcance no debe ser null.
+     */
+    private void ensureScopeBucket(String scope) {
+        if (!scopePrograma.containsKey(scope)) {
+            scopePrograma.put(scope, new ArrayList<>());
+        }
+        if (!semanticScopes.containsKey(scope)) {
+            semanticScopes.put(scope, new LinkedHashMap<>());
+        }
+    }
+
+    /**
+     * Proposito: convertir un simbolo CUP en linea 1-based para diagnosticos.
+     * Entradas: simbolo sintactico proveniente de las acciones de la gramatica.
+     * Salidas: numero de linea >=1 o -1 cuando no hay coordenadas.
+     * Restricciones: depende del atributo left proporcionado por CUP.
+     */
+    private int toLine(Symbol sym) {
+        return (sym == null || sym.left < 0) ? -1 : sym.left + 1;
+    }
+
+    /**
+     * Proposito: obtener la posicion de columna (1-based) de un simbolo CUP.
+     * Entradas: simbolo a inspeccionar.
+     * Salidas: numero de columna >=1 o -1 si no existe informacion.
+     * Restricciones: usa el atributo right calculado por CUP.
+     */
+    private int toColumn(Symbol sym) {
+        return (sym == null || sym.right < 0) ? -1 : sym.right + 1;
+    }
+
+    /**
+     * Proposito: formatear una cadena legible con la posicion del simbolo.
+     * Entradas: simbolo que contiene metadatos de linea/columna.
+     * Salidas: texto " (linea X, columna Y)" o cadena vacia si faltan datos.
+     * Restricciones: solo tiene sentido cuando el simbolo tiene coordenadas.
+     */
+    private String posString(Symbol sym) {
+        int line = toLine(sym);
+        int col = toColumn(sym);
+        if (line < 0 || col < 0) {
+            return "";
+        }
+        return " (linea " + line + ", columna " + col + ")";
+    }
+
+    /**
+     * Proposito: centralizar el registro y almacenamiento de errores semanticos.
+     * Entradas: mensaje descriptivo y simbolo relacionado para la posicion.
+     * Salidas: linea en stderr y adicion a la lista semanticErrors.
+     * Restricciones: protege contra simbolos nulos antes de usar sus datos.
+     */
+    private void reportSemanticError(String message, Symbol sym) {
+        String formatted = "[SEMANTICO] " + message + posString(sym);
+        semanticErrors.add(formatted);
+        System.err.println(formatted);
+    }
+
+    /**
+     * Proposito: detectar si la ejecucion ocurre en la raiz del repo o dentro de /programa.
+     * Entradas: ninguna; se basa en el directorio de trabajo actual.
+     * Salidas: Path base que contiene las carpetas src y output.
+     * Restricciones: si no se puede detectar, regresa el directorio actual.
+     */
+    private Path resolveProjectBaseDir() {
+        Path cwd = Paths.get(System.getProperty("user.dir")).toAbsolutePath();
+        if (Files.isDirectory(cwd.resolve("src")) && Files.isDirectory(cwd.resolve("output"))) {
+            return cwd;
+        }
+        Path nested = cwd.resolve("programa");
+        if (Files.isDirectory(nested) && Files.isDirectory(nested.resolve("src"))) {
+            return nested;
+        }
+        return cwd;
+    }
+
+    /**
+     * Proposito: obtener la tabla semantica de un alcance, creandola si no existe.
+     * Entradas: nombre textual del alcance solicitado.
+     * Salidas: LinkedHashMap con los SymbolInfo del alcance.
+     * Restricciones: el nombre no debe ser null; la creacion es idempotente.
+     */
+    private LinkedHashMap<String, SymbolInfo> semanticScope(String scopeName) {
+        ensureScopeBucket(scopeName);
+        return semanticScopes.get(scopeName);
+    }
+
+    /**
+     * Proposito: declarar un simbolo dentro del alcance correspondiente y registrar su metadata.
+     * Entradas: alcance propietario, lexema, tipo, indicadores de arreglo, bandera de parametro/global y token para ubicacion.
+     * Salidas: SymbolInfo almacenado en semanticScopes y linea resumen en scopePrograma.
+     * Restricciones: evita duplicados por alcance y usa el global cuando owner es null.
+     */
+    private SymbolInfo declareSymbol(String ownerScope, String name, String type,
+                                     boolean isArray, int arraySize, boolean isParam,
+                                     boolean forceGlobal, Symbol token) {
+        String scopeName = forceGlobal ? globalHash : (ownerScope != null ? ownerScope : globalHash);
+        ensureScopeBucket(scopeName);
+        LinkedHashMap<String, SymbolInfo> table = semanticScopes.get(scopeName);
+        if (table.containsKey(name)) {
+            reportSemanticError("El identificador '" + name + "' ya existe en el alcance '" + scopeName + "'", token);
+            return null;
+        }
+        SymbolInfo info = new SymbolInfo(name, type, isArray, arraySize, isParam,
+                                         scopeName.equals(globalHash), toLine(token), toColumn(token));
+        table.put(name, info);
+
+        ArrayList<String> bucket = scopePrograma.get(scopeName);
+        if (bucket == null) {
+            bucket = new ArrayList<>();
+            scopePrograma.put(scopeName, bucket);
+        }
+        String lineStr = info.line >= 0 ? Integer.toString(info.line) : "n/a";
+        String colStr = info.col >= 0 ? Integer.toString(info.col) : "n/a";
+        String prefix;
+        if (isParam) {
+            prefix = "Parametro";
+        } else if (scopeName.equals(globalHash)) {
+            prefix = "Instancia GLOBAL";
+        } else {
+            prefix = "Instancia";
+        }
+        String typeLabel = isArray ? ("ARR:" + type) : type;
+        bucket.add(prefix + ": " + name + ":" + typeLabel + ":line=" + lineStr + ":col=" + colStr);
+        return info;
+    }
+
+    /**
+     * Proposito: resolver identificadores buscando primero en el alcance actual y luego en el global.
+     * Entradas: lexema a localizar.
+     * Salidas: SymbolInfo encontrado o null si no existe declaracion.
+     * Restricciones: depende de currentHash para conocer el alcance activo.
+     */
+    private SymbolInfo lookupSymbol(String name) {
+        if (currentHash != null) {
+            LinkedHashMap<String, SymbolInfo> local = semanticScopes.get(currentHash);
+            if (local != null && local.containsKey(name)) {
+                return local.get(name);
+            }
+        }
+        LinkedHashMap<String, SymbolInfo> global = semanticScopes.get(globalHash);
+        if (global != null && global.containsKey(name)) {
+            return global.get(name);
+        }
+        return null;
+    }
+
+    /**
+     * Proposito: construir los atributos de una expresion basada en un identificador simple.
+     * Entradas: lexema y simbolo que origina la referencia.
+     * Salidas: ExprAttr con place/type o un marcador invalido si hay errores.
+     * Restricciones: los arreglos requieren indice y se rechazan aqui.
+     */
+    private ExprAttr identifierExpr(String name, Symbol token) {
+        SymbolInfo info = lookupSymbol(name);
+        if (info == null) {
+            reportSemanticError("El identificador '" + name + "' no ha sido declarado", token);
+            return ExprAttr.invalid();
+        }
+        if (info.isArray) {
+            reportSemanticError("El identificador '" + name + "' es un arreglo, se requiere indice", token);
+            return ExprAttr.invalid();
+        }
+        return new ExprAttr(name, info.type, false);
+    }
+
+    /**
+     * Proposito: validar y describir el acceso a un elemento de arreglo generando codigo de tres direcciones explicito.
+     * Entradas: nombre del arreglo, expresion de indice y simbolos para diagnosticos.
+     * Salidas: ExprAttr con el temporal cargado desde memoria y los metadatos necesarios para reasignaciones.
+     * Restricciones: requiere arreglo declarado, indice INT valido y verifica limites cuando sea posible.
+     */
+    private ExprAttr arrayAccess(String name, ExprAttr index, Symbol idSym, Symbol idxSym) {
+        SymbolInfo info = lookupSymbol(name);
+        if (info == null) {
+            reportSemanticError("El arreglo '" + name + "' no ha sido declarado", idSym);
+            return ExprAttr.invalid();
+        }
+        if (!info.isArray) {
+            reportSemanticError("El identificador '" + name + "' no es un arreglo", idSym);
+            return ExprAttr.invalid();
+        }
+        if (index == null || !index.isValid()) {
+            reportSemanticError("El indice para '" + name + "' es invalido", idxSym != null ? idxSym : idSym);
+            return ExprAttr.invalid();
+        }
+        if (!"INT".equals(index.type)) {
+            reportSemanticError("El indice para '" + name + "' debe ser de tipo INT", idxSym != null ? idxSym : idSym);
+            return ExprAttr.invalid();
+        }
+        if (info.arraySize > 0 && index.constant) {
+            try {
+                int idxVal = Integer.parseInt(index.place);
+                if (idxVal < 0 || idxVal >= info.arraySize) {
+                    reportSemanticError("Indice fuera de rango para '" + name + "' (0.." + (info.arraySize - 1) + ")", idxSym != null ? idxSym : idSym);
+                }
+            } catch (NumberFormatException ignore) {
+                // Si no se puede evaluar en tiempo de compilacion no se aplica la verificacion
+            }
+        }
+
+        String loadTemp = newTemp(info.type);
+        emit("aload " + loadTemp + ", " + name + ", " + index.place);
+        String location = name + "[" + index.place + "]";
+        return new ExprAttr(loadTemp, info.type, false, location, info, index.place);
+    }
+
+    /**
+     * Proposito: centralizar la escritura de valores dentro de un arreglo en el codigo de tres direcciones.
+     * Entradas: referencia al ExprAttr que apunta al elemento, valor evaluado y simbolo para diagnosticos.
+     * Salidas: instruccion 'astore' que refleja la asignacion.
+     * Restricciones: el ExprAttr debe representar un elemento de arreglo y los tipos deben coincidir.
+     */
+    private void emitArrayStore(ExprAttr target, ExprAttr value, Symbol token) {
+        if (target == null || !target.isArrayReference()) {
+            reportSemanticError("Se intento asignar a un destino que no es un arreglo", token);
+            return;
+        }
+        if (value == null || !value.isValid()) {
+            reportSemanticError("Expresion invalida al asignar a arreglo", token);
+            return;
+        }
+        if (!target.type.equals(value.type)) {
+            reportSemanticError("Tipos incompatibles al asignar a arreglo: se esperaba '" + target.type + "' y se recibio '" + value.type + "'", token);
+            return;
+        }
+        emit("astore " + target.symbolInfo.name + ", " + target.indexPlace + ", " + value.place);
+    }
+
+    /**
+     * Proposito: verificar que una lista de inicializacion de arreglos no mezcle tipos diferentes.
+     * Entradas: lista de ExprAttr y simbolo para diagnosticos.
+     * Salidas: true cuando todos los elementos comparten el mismo tipo; false en caso contrario.
+     * Restricciones: ignora entradas nulas o invalidas para evitar duplicar mensajes previos.
+     */
+    private boolean ensureHomogeneousElements(ArrayList<ExprAttr> list, Symbol token) {
+        if (list == null || list.isEmpty()) {
+            return true;
+        }
+        String baseType = null;
+        boolean ok = true;
+        for (ExprAttr expr : list) {
+            if (expr == null || !expr.isValid()) {
+                continue;
+            }
+            if (baseType == null) {
+                baseType = expr.type;
+            } else if (!baseType.equals(expr.type)) {
+                reportSemanticError("Los elementos del arreglo deben ser del mismo tipo; se encontro '" + expr.type + "' y '" + baseType + "'", token);
+                ok = false;
+            }
+        }
+        return ok;
+    }
+
+    /**
+     * Proposito: realizar las validaciones semanticas de una llamada e imprimir el codigo 3D correspondiente.
+     * Entradas: nombre de la funcion, lista de argumentos evaluados y simbolo del sitio de llamada.
+     * Salidas: ExprAttr que referencia el temporal de retorno; registra errores si algo no coincide.
+     * Restricciones: la funcion debe existir previamente y los tipos de los argumentos deben coincidir de forma exacta.
+     */
+    private ExprAttr invokeFunction(String name, ArrayList<ExprAttr> args, Symbol token) {
+        FunctionInfo fun = functionTable.get(name);
+        if (fun == null) {
+            reportSemanticError("La funcion '" + name + "' no ha sido declarada", token);
+            return ExprAttr.invalid();
+        }
+        if (args == null) {
+            args = new ArrayList<>();
+        }
+        if (fun.params.size() != args.size()) {
+            reportSemanticError("La funcion '" + name + "' espera " + fun.params.size() + " parametros y recibe " + args.size(), token);
+        } else {
+            for (int i = 0; i < fun.params.size(); i++) {
+                SymbolInfo param = fun.params.get(i);
+                ExprAttr provided = args.get(i);
+                if (provided == null || !provided.isValid()) {
+                    reportSemanticError("Parametro " + (i+1) + " invalido al invocar '" + name + "'", token);
+                    continue;
+                }
+                if (!param.type.equals(provided.type)) {
+                    reportSemanticError("Parametro " + (i+1) + " de '" + name + "' espera '" + param.type + "' y recibe '" + provided.type + "'", token);
+                }
+            }
+        }
+        for (ExprAttr expr : args) {
+            if (expr != null && expr.isValid()) {
+                emit("param " + expr.place);
+            }
+        }
+        String temp = newTemp(fun.returnType);
+        emit(temp + " = call " + name + ", " + args.size());
+        return new ExprAttr(temp, fun.returnType, false);
+    }
+
+    /**
+     * Proposito: preparar las estructuras internas para una nueva declaracion de funcion.
+     * Entradas: nombre de la funcion, tipo de retorno y simbolo de declaracion.
+     * Salidas: registros en functionTable/scopePrograma y emision del bloque begin_func.
+     * Restricciones: reporta error si la funcion ya existia.
+     */
+    private void startFunctionScope(String name, String returnType, Symbol token) {
+        if (functionTable.containsKey(name)) {
+            reportSemanticError("La funcion '" + name + "' ya fue declarada", token);
+            return;
+        }
+        FunctionInfo info = new FunctionInfo(name, returnType);
+        functionTable.put(name, info);
+        currentHash = name;
+        ArrayList<String> bucket = new ArrayList<>();
+        bucket.add("tipo:func:" + returnType);
+        scopePrograma.put(name, bucket);
+        semanticScopes.put(name, new LinkedHashMap<>());
+    }
+
+    /**
+     * Proposito: abandonar el alcance de funcion en el que se estaba trabajando.
+     * Entradas: ninguna (usa currentHash).
+     * Salidas: restablece currentHash para que las declaraciones regresen al alcance global.
+     * Restricciones: debe invocarse una sola vez por startFunctionScope.
+     */
+    private void closeCurrentScope() {
+        currentHash = null;
+    }
+
+    /**
+     * Proposito: recuperar la metadata de la funcion que se esta procesando.
+     * Entradas: ninguna.
+     * Salidas: instancia FunctionInfo o null si no estamos dentro de una funcion.
+     * Restricciones: depende de que currentHash refleje el alcance real.
+     */
+    private FunctionInfo currentFunction() {
+        if (currentHash == null) {
+            return null;
+        }
+        return functionTable.get(currentHash);
+    }
+
+    /**
+     * Proposito: registrar un parametro formal tanto en la tabla semantica como en la metadata de la funcion.
+     * Entradas: nombre/tipo del parametro y coordenadas del token original.
+     * Salidas: SymbolInfo almacenado en el alcance actual y agregado a la lista de parametros.
+     * Restricciones: asume que currentHash apunta a la funcion propietaria.
+     */
+    private void registrarParametroEnScope(String nombre, String tipo, int left, int right) {
+        Symbol fake = new Symbol(sym.IDENTIFIER, left, right, nombre);
+        SymbolInfo info = declareSymbol(currentHash, nombre, tipo, false, 0, true, false, fake);
+        FunctionInfo fun = currentFunction();
+        if (fun != null && info != null) {
+            fun.params.add(info);
+        }
+    }
+
+    /**
+     * Proposito: encapsular literales o valores por defecto dentro de un ExprAttr.
+     * Entradas: simbolo CUP (puede ser null), texto por defecto y tipo semantico.
+     * Salidas: ExprAttr marcado como constante con el place/type correspondiente.
+     * Restricciones: quien llama debe asegurarse de que el tipo sea compatible con el lenguaje.
+     */
+    private ExprAttr literalAttr(Symbol sym, String fallback, String type) {
+        String raw = sym != null && sym.value != null ? sym.value.toString() : fallback;
+        if (raw == null) {
+            raw = fallback != null ? fallback : "0";
+        }
+        return new ExprAttr(raw, type, true);
+    }
+
+    /**
+     * Proposito: asegurar que una expresion sea numerica antes de usarla en aritmetica.
+     * Entradas: ExprAttr a validar, simbolo para reportar el error y descripcion textual del contexto.
+     * Salidas: el mismo ExprAttr si es valido o un marcador invalido con registro de error.
+     * Restricciones: se espera que expr no sea null y que ya tenga tipo asociado.
+     */
+    private ExprAttr ensureNumeric(ExprAttr expr, Symbol token, String context) {
+        if (expr == null || !expr.isValid() || !expr.isNumeric()) {
+            reportSemanticError("Se esperaba expresion numerica en " + context, token);
+            return ExprAttr.invalid();
+        }
+        return expr;
+    }
+
+    /**
+     * Proposito: aplicar las reglas semanticas de operadores aritmeticos binarios y emitir su codigo de tres direcciones.
+     * Entradas: lexema del operador, operandos izquierdo/derecho y simbolo para diagnosticos.
+     * Salidas: ExprAttr que apunta al nuevo temporal generado; invalido si ocurre algun error.
+     * Restricciones: ambos operandos deben ser numericos; se promociona a FLOAT si es necesario.
+     */
+    private ExprAttr numericBinary(String op, ExprAttr left, ExprAttr right, Symbol token) {
+        if (left == null) left = ExprAttr.invalid();
+        if (right == null) right = ExprAttr.invalid();
+        if (!left.isValid() || !right.isValid()) {
+            reportSemanticError("Operacion aritmetica invalida", token);
+            return ExprAttr.invalid();
+        }
+        if (!left.isNumeric() || !right.isNumeric()) {
+            reportSemanticError("Operacion '" + op + "' solo soporta INT/FLOAT", token);
+            return ExprAttr.invalid();
+        }
+        if (!left.type.equals(right.type)) {
+            reportSemanticError("No se puede operar '" + left.type + "' con '" + right.type + "' usando '" + op + "'", token);
+            return ExprAttr.invalid();
+        }
+        String resultType = left.type;
+        String temp = newTemp(resultType);
+        emit(temp + " = " + left.place + " " + op + " " + right.place);
+        return new ExprAttr(temp, resultType, false);
+    }
+
+    /**
+     * Proposito: procesar operadores numericos unarios y emitir su codigo de tres direcciones.
+     * Entradas: lexema del operador, expresion operando y simbolo para diagnosticos.
+     * Salidas: ExprAttr que referencia el temporal resultante.
+     * Restricciones: el operando debe ser numerico; los errores propagan expresiones invalidas.
+     */
+    private ExprAttr numericUnary(String op, ExprAttr value, Symbol token) {
+        if (value == null || !value.isValid() || !value.isNumeric()) {
+            reportSemanticError("Operacion '" + op + "' requiere un numerico", token);
+            return ExprAttr.invalid();
+        }
+        String temp = newTemp(value.type);
+        emit(temp + " = " + op + value.place);
+        return new ExprAttr(temp, value.type, false);
+    }
+
+    /**
+     * Proposito: aplicar las reglas de comparacion y generar temporales booleanos.
+     * Entradas: operador, operandos izquierdo/derecho y simbolo CUP para los mensajes.
+     * Salidas: ExprAttr de tipo BOOL que referencia el codigo emitido.
+     * Restricciones: si los operandos no son numericos deben compartir exactamente el mismo tipo.
+     */
+    private ExprAttr compareBinary(String op, ExprAttr left, ExprAttr right, Symbol token) {
+        if (left == null) left = ExprAttr.invalid();
+        if (right == null) right = ExprAttr.invalid();
+        if (!left.isValid() || !right.isValid()) {
+            reportSemanticError("Comparacion invalida", token);
+            return ExprAttr.invalid();
+        }
+        if (!left.type.equals(right.type)) {
+            reportSemanticError("Comparacion requiere operandos del mismo tipo; se obtuvo '" + left.type + "' y '" + right.type + "'", token);
+            return ExprAttr.invalid();
+        }
+        boolean equalityOp = "==".equals(op) || "!=".equals(op);
+        if (equalityOp) {
+            if (!left.isNumeric() && !left.isBoolean() && !"CHAR".equals(left.type) && !"STRING".equals(left.type)) {
+                reportSemanticError("Comparacion no soportada para tipo '" + left.type + "'", token);
+                return ExprAttr.invalid();
+            }
+        } else if (!left.isNumeric()) {
+            reportSemanticError("El operador '" + op + "' solo admite operandos numericos del mismo tipo", token);
+            return ExprAttr.invalid();
+        }
+        String temp = newTemp("BOOL");
+        emit(temp + " = " + left.place + " " + op + " " + right.place);
+        return new ExprAttr(temp, "BOOL", false);
+    }
+
+    /**
+     * Proposito: validar operaciones logicas tipo AND/OR a nivel semantico.
+     * Entradas: operador logico, operandos booleanos y simbolo con datos de error.
+     * Salidas: ExprAttr booleano ligado al temporal que almacena el resultado.
+     * Restricciones: ambos operandos deben ser BOOL.
+     */
+    private ExprAttr logicalBinary(String op, ExprAttr left, ExprAttr right, Symbol token) {
+        if (left == null || right == null || !left.isBoolean() || !right.isBoolean()) {
+            reportSemanticError("Operacion logica requiere booleanos", token);
+            return ExprAttr.invalid();
+        }
+        String temp = newTemp("BOOL");
+        emit(temp + " = " + left.place + " " + op + " " + right.place);
+        return new ExprAttr(temp, "BOOL", false);
+    }
+
+    /**
+     * Proposito: procesar operadores logicos unarios como la negacion.
+     * Entradas: operador, expresion operando y simbolo fuente.
+     * Salidas: ExprAttr booleano cuando el operando es valido.
+     * Restricciones: solo acepta entradas booleanas.
+     */
+    private ExprAttr logicalUnary(String op, ExprAttr value, Symbol token) {
+        if (value == null || !value.isBoolean()) {
+            reportSemanticError("Operacion logica requiere booleano", token);
+            return ExprAttr.invalid();
+        }
+        String temp = newTemp("BOOL");
+        emit(temp + " = " + op + " " + value.place);
+        return new ExprAttr(temp, "BOOL", false);
+    }
+
+    /**
+     * Proposito: salvaguardar sentencias que dependen de expresiones booleanas.
+     * Entradas: ExprAttr evaluado, simbolo para ubicar el error y descripcion del contexto.
+     * Salidas: ninguna; solo reporta el error cuando la condicion no se cumple.
+     * Restricciones: aun con el reporte, quien llama debe manejar expresiones invalidas.
+     */
+    private void ensureBoolean(ExprAttr expr, Symbol token, String context) {
+        if (expr == null || !expr.isBoolean()) {
+            reportSemanticError("La expresion en " + context + " debe ser BOOL", token);
+        }
+    }
+
+    /**
+     * Proposito: centralizar las validaciones de asignaciones escalares y la emision de codigo de tres direcciones.
+     * Entradas: metadata del destino, expresion evaluada y simbolo '='.
+     * Salidas: emite el codigo de asignacion cuando los tipos coinciden.
+     * Restricciones: el destino no puede ser arreglo y los tipos tienen que ser identicos.
+     */
+    private void recordAssignment(SymbolInfo target, ExprAttr value, Symbol token) {
+        if (target == null || value == null || !value.isValid()) {
+            reportSemanticError("Asignacion invalida", token);
+            return;
+        }
+        if (!target.type.equals(value.type)) {
+            reportSemanticError("Tipos incompatibles en asignacion para '" + target.name + "'", token);
+            return;
+        }
+        emit(target.name + " = " + value.place);
+    }
+
+    /**
+     * Proposito: validar las sentencias return y marcar que la funcion retorno.
+     * Entradas: expresion opcional, simbolo y bandera que indica si hay valor explicito.
+    * Salidas: emite el codigo de tres direcciones del return cuando los tipos coinciden; reporta errores cuando falta.
+     * Restricciones: no puede usarse fuera de los alcances de funcion.
+     */
+    private void recordReturn(ExprAttr value, Symbol token, boolean hasValue) {
+        FunctionInfo fun = currentFunction();
+        if (fun == null) {
+            reportSemanticError("Return fuera de una función", token);
+            return;
+        }
+        fun.hasReturn = true;
+        if (!hasValue) {
+            reportSemanticError("Return requiere una expresión para función '" + fun.name + "'", token);
+            return;
+        }
+        if (value == null || !value.isValid()) {
+            reportSemanticError("Return inválido", token);
+            return;
+        }
+        if (!fun.returnType.equals(value.type)) {
+            reportSemanticError("El return espera tipo '" + fun.returnType + "' y recibe '" + value.type + "'", token);
+        }
+        emit("return " + value.place);
+    }
+
+    /**
+     * Proposito: generar identificadores unicos para temporales.
+     * Entradas: etiqueta de tipo solo para fines descriptivos.
+     * Salidas: nombre de cadena para usarse en el codigo de tres direcciones.
+     * Restricciones: no depender del prefijo mas alla de la legibilidad.
+     */
+    private String newTemp(String type) {
+        tempCounter++;
+        return ("FLOAT".equals(type) ? "f" : "t") + tempCounter;
+    }
+
+    /**
+     * Proposito: crear etiquetas unicas para estructuras de control.
+     * Entradas: prefijo textual que describe la construccion.
+     * Salidas: etiqueta con un contador incremental.
+     * Restricciones: el prefijo debe ser descriptivo para ayudar al depurado.
+     */
+    private String newLabel(String prefix) {
+        labelCounter++;
+        return prefix + "_" + labelCounter;
+    }
+
+    /**
+     * Proposito: agregar una instruccion al buffer de codigo 3D.
+     * Entradas: linea de codigo de tres direcciones ya formateada.
+     * Salidas: actualiza cod3D con la linea mas un salto de linea.
+     * Restricciones: quien llama debe evitar cadenas nulas o vacias.
+     */
+    private void emit(String codeLine) {
+        cod3D.append(codeLine).append("\n");
+    }
+
+    /**
+     * Proposito: imprimir la declaracion de una etiqueta dentro del codigo 3D.
+     * Entradas: etiqueta generada previamente.
+     * Salidas: escribe "label:" seguido de salto de linea en cod3D.
+     * Restricciones: solo debe llamarse con etiquetas unicas.
+     */
+    private void emitLabel(String label) {
+        cod3D.append(label).append(":\n");
+    }
+
+    /**
+     * Proposito: convertir literales CUP en enteros primitivos para tamanos de arreglo.
+     * Entradas: simbolo que contiene digitos.
+     * Salidas: valor entero o 0 si la conversion falla.
+     * Restricciones: pensado para literales decimales no negativos.
+     */
+    private int literalToInt(Symbol sym) {
+        if (sym != null && sym.value != null) {
+            try {
+                return Integer.parseInt(sym.value.toString());
+            } catch (NumberFormatException ex) {
+                reportSemanticError("Valor numérico inválido", sym);
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Proposito: construir simbolos CUP sinteticos para llamadas auxiliares internas.
+     * Entradas: valor bruto, coordenadas y el id del simbolo.
+     * Salidas: Symbol con la metadata proporcionada.
+     * Restricciones: usar solo para diagnostico, nunca para devolverlo al lexer.
+     */
+    private Symbol tokenFrom(Object value, int left, int right, int symId) {
+        return new Symbol(symId, left, right, value);
+    }
+
+    /**
+     * Proposito: convertir valores arbitrarios de tokens en cadenas seguras y no nulas.
+     * Entradas: referencia proveniente del lexer o de auxiliares.
+     * Salidas: representacion en cadena o vacio si es null.
+     * Restricciones: utilidad simple; quien llama puede aplicar trim si lo requiere.
+     */
+    private String lexeme(Object value) {
+        return value != null ? value.toString() : "";
+    }
+
+    /**
+     * Proposito: inicializar las pilas antes de procesar un decide-of.
+     * Entradas: ninguna.
+     * Salidas: apila la etiqueta de cierre para usarla en las ramas.
+     * Restricciones: debe emparejarse con endDecideStructure.
+     */
+    private void beginDecideStructure() {
+        decideEndStack.push(newLabel("decide_end"));
+    }
+
+    /**
+     * Proposito: cerrar la estructura decide-of y emitir su etiqueta final.
+     * Entradas: ninguna.
+     * Salidas: imprime la etiqueta pendiente y limpia las pilas.
+     * Restricciones: asume que beginDecideStructure ya se invoco.
+     */
+    private void endDecideStructure() {
+        if (!decideEndStack.isEmpty()) {
+            emitLabel(decideEndStack.pop());
+        }
+    }
+
+    /**
+     * Proposito: iniciar un caso dentro de decide-of validando su condicion y preparando los saltos.
+     * Entradas: expresion condicional y simbolo para diagnosticos.
+     * Salidas: emite los saltos condicionales y apila la etiqueta de continuacion.
+     * Restricciones: la condicion debe ser booleana o se reporta error.
+     */
+    private void beginDecideCase(ExprAttr condition, Symbol token) {
+        if (condition == null || !condition.isBoolean()) {
+            reportSemanticError("La condición de decide debe ser BOOL", token);
+            return;
+        }
+        String hitLabel = newLabel("case_hit");
+        String nextLabel = newLabel("case_next");
+        emit("if " + condition.place + " goto " + hitLabel);
+        emit("goto " + nextLabel);
+        emitLabel(hitLabel);
+        decideNextStack.push(nextLabel);
+    }
+
+    /**
+     * Proposito: cerrar el caso activo de decide y ajustar el flujo de control.
+     * Entradas: ninguna.
+     * Salidas: emite el salto hacia la etiqueta final y declara la etiqueta siguiente almacenada.
+     * Restricciones: requiere que beginDecideCase haya colocado una etiqueta en la pila.
+     */
+    private void endDecideCase() {
+        String endLabel = decideEndStack.peek();
+        String nextLabel = decideNextStack.isEmpty() ? newLabel("case_next") : decideNextStack.pop();
+        emit("goto " + endLabel);
+        emitLabel(nextLabel);
+    }
+
+    /**
+     * Proposito: preparar la rama else del decide-of.
+     * Entradas: ninguna.
+     * Salidas: emite un comentario para claridad y reutiliza las etiquetas en pila.
+     * Restricciones: se debe invocar una sola vez por cada decide-of.
+     */
+    private void beginDecideElse() {
+        emit("// rama else");
+    }
+
+    /**
+     * Proposito: cerrar la rama else saltando hacia la etiqueta final del decide.
+     * Entradas: ninguna.
+     * Salidas: emite un goto hacia la etiqueta de cierre.
+     * Restricciones: asume que decideEndStack tiene una entrada vigente.
+     */
+    private void endDecideElse() {
+        String endLabel = decideEndStack.peek();
+        emit("goto " + endLabel);
+    }
+
+    /**
+     * Proposito: inicializar las pilas de control para una estructura loop.
+     * Entradas: ninguna.
+     * Salidas: apila etiquetas de inicio/fin y emite la cabecera del ciclo.
+     * Restricciones: debe emparejarse con endLoopStructure.
+     */
+    private void beginLoopStructure() {
+        String start = newLabel("loop_begin");
+        String end = newLabel("loop_end");
+        loopStartStack.push(start);
+        loopEndStack.push(end);
+        emitLabel(start);
+    }
+
+    /**
+     * Proposito: cerrar una estructura loop y desapilar sus etiquetas de control.
+     * Entradas: ninguna.
+     * Salidas: emite la etiqueta de fin y limpia las pilas.
+     * Restricciones: solo es valido si beginLoopStructure fue invocado.
+     */
+    private void endLoopStructure() {
+        if (!loopEndStack.isEmpty()) {
+            emitLabel(loopEndStack.pop());
+        }
+        if (!loopStartStack.isEmpty()) {
+            loopStartStack.pop();
+        }
+    }
+
+    /**
+     * Proposito: emitir la condicion de salida que abandona el cuerpo de un loop.
+     * Entradas: expresion booleana de salida y simbolo relacionado.
+     * Salidas: genera el salto condicional al final del loop y el retorno al inicio.
+     * Restricciones: la expresion debe evaluar a BOOL.
+     */
+    private void finalizeLoopBody(ExprAttr exitExpr, Symbol token) {
+        if (exitExpr == null || !exitExpr.isBoolean()) {
+            reportSemanticError("La condición de salida del loop debe ser BOOL", token);
+            return;
+        }
+        String start = loopStartStack.peek();
+        String end = loopEndStack.peek();
+        emit("if " + exitExpr.place + " goto " + end);
+        emit("goto " + start);
+    }
+
+    /**
+     * Proposito: validar y emitir la estructura base de los ciclos FOR/DOWNTO.
+     * Entradas: expresion de la variable control, paso, limite y bandera de direccion.
+     * Salidas: emite etiquetas de condicion/cuerpo y almacena el contexto del ciclo.
+     * Restricciones: todas las expresiones deben ser numericas y el destino asignable.
+     */
+    private void beginForLoop(ExprAttr target, ExprAttr step, ExprAttr limit, boolean downto) {
+        if (target == null || !target.isNumeric()) {
+            reportSemanticError("La variable de control del for debe ser numérica", null);
+            return;
+        }
+        if (step == null || !step.isNumeric()) {
+            reportSemanticError("El paso del for debe ser numérico", null);
+            return;
+        }
+        if (limit == null || !limit.isNumeric()) {
+            reportSemanticError("El límite del for debe ser numérico", null);
+            return;
+        }
+        String condLabel = newLabel("for_cond");
+        String bodyLabel = newLabel("for_body");
+        String endLabel = newLabel("for_end");
+        emitLabel(condLabel);
+        String comparator = downto ? "<" : ">";
+        emit("if " + target.place + " " + comparator + " " + limit.place + " goto " + endLabel);
+        emitLabel(bodyLabel);
+        loopStartStack.push(condLabel);
+        loopEndStack.push(endLabel);
+        forStack.push(new ForContext(target.place, target.type, step, limit, downto, condLabel, endLabel));
+    }
+
+    /**
+     * Proposito: cerrar los ciclos FOR emitiendo el incremento/decremento y limpiando el estado.
+     * Entradas: ninguna (usa la pila de contexto).
+     * Salidas: actualiza la variable de control, regresa a la condicion y emite la etiqueta final.
+     * Restricciones: asume que beginForLoop inserto un contexto en forStack.
+     */
+    private void endForLoop() {
+        if (forStack.isEmpty()) {
+            return;
+        }
+        ForContext ctx = forStack.pop();
+        String op = ctx.downto ? "-" : "+";
+        emit(ctx.target + " = " + ctx.target + " " + op + " " + ctx.step.place);
+        emit("goto " + ctx.condLabel);
+        emitLabel(ctx.endLabel);
+        if (!loopEndStack.isEmpty()) loopEndStack.pop();
+        if (!loopStartStack.isEmpty()) loopStartStack.pop();
+    }
+
+    /**
+     * Proposito: volcar las tablas de simbolos en CSV y mostrar un resumen en consola.
+     * Entradas: ninguna (usa el mapa scopePrograma).
+     * Salidas: escribe TablaSimbolos.txt dentro del directorio de salida determinado.
+     * Restricciones: garantiza que el directorio exista y maneja alcances vacios sin fallar.
+     */
     public void imprimirscopePrograma () {
         System.out.println("\nTABLA DE SIMBOLOS (resumen)");
         try {
-            Path outDir = Paths.get(System.getProperty("user.dir"), "programa", "output");
+            Path outDir = resolveProjectBaseDir().resolve("output");
             Files.createDirectories(outDir);
 
-            // Ensure there is at least a global scope entry so a file is produced even
-            // when parsing didn't reach the start action that initializes scopes.
             if (scopePrograma.isEmpty()) {
-                scopePrograma.put(globalHash, new ArrayList<String>());
+                scopePrograma.put(globalHash, new ArrayList<>());
             }
 
-            // write a single consolidated TablaSimbolos.txt with columns: Scope,Name,Type,Line,Column
             Path tablaFile = outDir.resolve("TablaSimbolos.txt");
-            Pattern p = Pattern.compile(".*:\s*([^:]+):([^:]+)(:line=(\\d+):col=(\\d+))?.*");
+            Pattern p = Pattern.compile(".*:\\s*([^:]+):([^:]+)(:line=(\\d+):col=(\\d+))?.*");
             try (FileWriter fw = new FileWriter(tablaFile.toFile())) {
                 fw.write("Scope,Name,Type,Line,Column\n");
-                for (String key: scopePrograma.keySet()) {
-                    System.out.println("Scope: " + key + "  (" + scopePrograma.get(key).size() + " entradas)");
-                    for (String item : scopePrograma.get(key)) {
+                for (Map.Entry<String, ArrayList<String>> entry : scopePrograma.entrySet()) {
+                    String key = entry.getKey();
+                    System.out.println("Scope: " + key + "  (" + entry.getValue().size() + " entradas)");
+                    for (String item : entry.getValue()) {
                         String name="", type="", line="n/a", col="n/a";
-                        // try to extract name and type by splitting on ':' and looking for known type tokens
                         String[] parts = item.split(":");
                         if (parts.length >= 2) {
                             name = parts[1].trim();
                         }
                         if (parts.length >= 3) {
-                            // find a part that matches a known type (prefer the first following the name)
                             for (int i = 2; i < parts.length; i++) {
-                                String ppart = parts[i].trim();
-                                if (ppart.equals("INT") || ppart.equals("CHAR") || ppart.equals("FLOAT") || ppart.equals("BOOL") || ppart.equals("STRING") || ppart.equals("ARR") || ppart.startsWith("tipo:") || ppart.equals("MAIN")) {
-                                    type = ppart;
+                                String part = parts[i].trim();
+                                if (part.equals("INT") || part.equals("CHAR") || part.equals("FLOAT") || part.equals("BOOL") || part.equals("STRING") || part.startsWith("ARR") || part.startsWith("tipo:")) {
+                                    type = part;
                                     break;
                                 }
                             }
-                            // fallback: use the immediate next part
-                            if (type.isEmpty()) type = parts[2].trim();
+                            if (type.isEmpty()) {
+                                type = parts[2].trim();
+                            }
                         }
-
-                        // find line/col anywhere in the item string
                         Matcher ml = Pattern.compile("line=(\\d+)").matcher(item);
                         if (ml.find()) line = ml.group(1);
                         Matcher mc = Pattern.compile("col=(\\d+)").matcher(item);
                         if (mc.find()) col = mc.group(1);
-
                         fw.write(key + "," + name + "," + type + "," + line + "," + col + "\n");
                     }
                 }
             }
 
-            System.out.println("Tablas de simbolos exportadas a: " + outDir.toAbsolutePath().toString());
+            System.out.println("Tablas de simbolos exportadas a: " + outDir.toAbsolutePath());
         } catch (Exception e) {
             System.err.println("Error al exportar tablas de simbolos: " + e.getMessage());
         }
     }
 
+    /**
+     * Proposito: persistir el codigo 3D generado en Codigo3D.txt.
+     * Entradas: ninguna (usa el buffer cod3D).
+     * Salidas: escribe el archivo y muestra el destino; avisa cuando no hay codigo.
+     * Restricciones: crea el directorio de salida si falta y captura excepciones de IO.
+     */
+    private void exportarCodigo3D() {
+        try {
+            Path outDir = resolveProjectBaseDir().resolve("output");
+            Files.createDirectories(outDir);
+            Path cod3DFile = outDir.resolve("Codigo3D.txt");
+            try (FileWriter fw = new FileWriter(cod3DFile.toFile())) {
+                String codigo = cod3D.toString().trim();
+                if (codigo.isEmpty()) {
+                    fw.write("// No se genero codigo 3D\n");
+                    System.out.println("Advertencia: No se genero codigo 3D");
+                } else {
+                    fw.write(codigo + "\n");
+                    System.out.println("Codigo 3D exportado a: " + cod3DFile.toAbsolutePath());
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error al exportar codigo 3D: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Proposito: exportar tablas y codigo 3D solo una vez por ejecucion del parser.
+     * Entradas: ninguna.
+     * Salidas: invoca imprimirscopePrograma y exportarCodigo3D si aun no se han generado.
+     * Restricciones: controlado por la bandera artifactsExported para evitar duplicados.
+     */
+    public void exportarResultados() {
+        if (artifactsExported) {
+            return;
+        }
+        imprimirscopePrograma();
+        exportarCodigo3D();
+        artifactsExported = true;
+    }
+
     // recuperación de errores de sintaxis (mejorada)
+    /**
+     * Proposito: ofrecer un gancho detallado para el manejo de errores sintacticos de CUP.
+     * Entradas: simbolo que ocasiono el error (puede ser null en EOF).
+     * Salidas: mensaje detallado en stderr con id de token, yytext y coordenadas.
+     * Restricciones: no debe lanzar excepciones; se protege contra fallos del lexer.
+     */
     public void syntax_error(Symbol s) {
         try {
             if (s == null) {
@@ -104,7 +1086,12 @@ parser code {:
         }
     }
 
-    // manejo de errores fatales (mejorado)
+    /**
+     * Proposito: informar errores sintacticos fatales cuando CUP no puede recuperarse.
+     * Entradas: simbolo problematico o null.
+     * Salidas: mensaje en stderr similar a syntax_error pero marcado como fatal.
+     * Restricciones: no debe lanzar excepciones para permitir un cierre limpio del parser.
+     */
     public void unrecovered_syntax_error(Symbol s) {
         try {
             if (s == null) {
@@ -129,33 +1116,33 @@ parser code {:
     }
 :}
 
-/* define how to connect to the scanner! */
-//init with {: s.init(); :};
-//scan with {: return s.next_token(); :};
+/* definicion de como conectar el parser con el escaner */
+// inicializar con {: s.init(); :};
+// escanear con {: return s.next_token(); :};
 init with {::};
 scan with {:return lex.next_token();:};
 
 
 /* Terminales (tokens returned by the scanner). */
 terminal            IDENTIFIER, MAS, MENOS, DMENOS, DMAS, MULTI, DIV, FLOAT_DIV, POTENCIA, INT_LITERAL;
-terminal            INIT_BLOCK, END_BLOCK, INIT_COMMENT, END_COMMENT, COMMENT, FUNC, PARAM, COMA, STRING_LITERAL;
+terminal            INIT_BLOCK, END_BLOCK, INIT_COMMENT, END_COMMENT, COMMENT, PARAM, COMA, STRING_LITERAL;
 terminal            EQ, GREATHER, LOWER, MORE, LESS, COMPARA, DIFF, AND, OR, NEGA;
 terminal            INT, FLOAT, CHAR, BOOL, STRING, ARRAY;
-terminal            GLOBAL, LET, DOT;
+terminal            GLOBAL, LET, DOT, PRINCIPAL;
 terminal            TRUE, FALSE;
-terminal            ELSE, FOR, DECIDE_OF, END_DECIDE, LOOP, END_LOOP, EXIT_WHEN, STEP, TO, DOWNTO, DO;
+terminal            ELSE, FOR, DECIDE, OF, LOOP, END, EXIT, WHEN, STEP, TO, DOWNTO, DO;
 terminal            BREAK, RETURN, INPUT, OUTPUT;
 terminal            PARENTS, PARENTC, SQUARES, SQUAREC;
-terminal            UKRA, RUSS, ARROW, MAIN, CHARSTR;
+terminal            UKRA, RUSS, ARROW, CHARSTR;
 terminal            DOLLAR; /* end of Expression */
 
 /* No terminales */
-non terminal            Integer expr;// used to store evaluated subexpressions
-non terminal            PROGRAMA, varIns, varAsig, BLOCK, compAritOp, factor, term, funcStruct, mainStruct, outPutStruct;
+non terminal            Integer expr;// almacena resultados intermedios de subexpresiones
+non terminal            PROGRAMA, varIns, varAsig, BLOCK, compAritOp, factor, term, funcStruct, mainStruct, outPutStruct, blockStart, blockStartClose, loopBody;
 non terminal            arrayIns, arrayAsig, arrayInsAsign, elementos, numbers;
-non terminal            decideOfCase, decideOfCases;
-non terminal            decideOfStruct, decideOfBody, decideOfElseStruct, loopStruct, forStruct;
-non terminal            inputStruct, mainInitial, funInitial, exprP, exprLog, exprUni, opRel, opLog, arrayElement, paramStruct, paramList, paramFunc, funcInvo, PRINCIPAL, arrayInsGl, varInsGl, varInsAsig, varInsAsigGl, arrayInsAsignGl;
+non terminal            decideClauseList, decideClause, decideOfStruct, loopStruct, loopElseOpt, forStruct, caseCondition;
+non terminal            inputStruct, mainInitial, funInitial, exprP, exprLog, exprRel, arrayElement, paramStruct, paramList, PROGRAM_ITEMS, arrayInsGl, varInsGl, varInsAsig, varInsAsigGl, arrayInsAsignGl;
+non terminal            paramSection, paramSectionClose, paramDeclList, paramDecl, argListOpt, argList, forInit, stepValue, commentBlock, commentBody;
 
 /* Orden de precedencia */
 precedence left MAS, MENOS;
@@ -166,12 +1153,26 @@ precedence left DIV;
 
 start with PROGRAMA;
 
-PROGRAMA ::= {: scopePrograma.put(globalHash, new ArrayList<String>()); :} 
-    PRINCIPAL {: imprimirscopePrograma(); :};
+PROGRAMA ::= {: initializeGlobalScope(); :} 
+    PROGRAM_ITEMS {: exportarResultados(); :};
 
-PRINCIPAL ::= funcStruct PRINCIPAL | mainStruct PRINCIPAL | arrayInsGl DOLLAR PRINCIPAL | varInsGl DOLLAR PRINCIPAL | varIns DOLLAR PRINCIPAL | varInsAsigGl
-    | varInsAsigGl PRINCIPAL | funcStruct | mainStruct | arrayInsGl DOLLAR | varInsGl DOLLAR | varIns DOLLAR | error PRINCIPAL
-    | arrayInsAsignGl PRINCIPAL | arrayInsAsignGl;  
+PROGRAM_ITEMS ::= mainStruct PROGRAM_ITEMS 
+            | mainStruct
+            | funcStruct PROGRAM_ITEMS 
+            | funcStruct 
+            | arrayInsGl DOLLAR PROGRAM_ITEMS 
+            | arrayInsGl DOLLAR
+            | varInsGl DOLLAR PROGRAM_ITEMS 
+            | varInsGl DOLLAR
+            | varIns DOLLAR PROGRAM_ITEMS 
+            | varIns DOLLAR
+            | varInsAsigGl PROGRAM_ITEMS 
+            | varInsAsigGl
+            | arrayInsAsignGl PROGRAM_ITEMS 
+            | arrayInsAsignGl
+            | commentBlock PROGRAM_ITEMS
+            | commentBlock
+            | error PROGRAM_ITEMS;  
 
 //Los distintos tipos que pueden tener una funcion o variable
 
@@ -185,18 +1186,18 @@ BLOCK  ::=  BLOCK exprP DOLLAR
        | BLOCK mainStruct
        | BLOCK funcStruct 
        | BLOCK varIns DOLLAR
-       | BLOCK decideOfStruct 
-       | BLOCK decideOfElseStruct 
+    | BLOCK decideOfStruct 
        | BLOCK loopStruct  
        | BLOCK forStruct 
        | BLOCK arrayIns DOLLAR
        | BLOCK varInsAsig 
        | BLOCK arrayInsAsign
-       | BLOCK inputStruct DOLLAR
+    | BLOCK inputStruct
        | BLOCK outPutStruct DOLLAR
        | BLOCK BREAK DOLLAR
        | BLOCK RETURN exprP DOLLAR
        | BLOCK RETURN DOLLAR
+     | BLOCK commentBlock
        | exprP DOLLAR
        | arrayIns DOLLAR
        | arrayInsAsign
@@ -209,274 +1210,317 @@ BLOCK  ::=  BLOCK exprP DOLLAR
        | arrayInsAsignGl
        | varInsAsig 
        | varIns DOLLAR
-       | decideOfStruct 
-       | decideOfElseStruct
+    | decideOfStruct 
        | forStruct
        | loopStruct
        | outPutStruct DOLLAR
-       | BREAK DOLLAR
-       | RETURN exprP DOLLAR
-       | RETURN DOLLAR
+    | BREAK:brk DOLLAR {: Symbol brkSym = tokenFrom(brk, brkleft, brkright, sym.BREAK); if (loopEndStack.isEmpty()) { reportSemanticError("'break' fuera de ciclo", brkSym); } else { emit("goto " + loopEndStack.peek()); } :}
+    | RETURN:retTok exprP:exp DOLLAR {: Symbol retSym = tokenFrom(retTok, retTokleft, retTokright, sym.RETURN); recordReturn((ExprAttr)exp, retSym, true); :}
+    | RETURN:retTok DOLLAR {: Symbol retSym = tokenFrom(retTok, retTokleft, retTokright, sym.RETURN); recordReturn(null, retSym, false); :}
        | inputStruct
+    | commentBlock
        | error;
 
+commentBlock ::= INIT_COMMENT commentBody END_COMMENT
+         | INIT_COMMENT END_COMMENT;
 
-numbers ::= INT_LITERAL | FLOAT;
+commentBody ::= commentBody COMMENT
+        | COMMENT;
+
+
+numbers ::= INT_LITERAL:lit {: Symbol litSym = tokenFrom(lit, litleft, litright, sym.INT_LITERAL); RESULT = literalAttr(litSym, "0", "INT"); :}
+         | FLOAT:lit {: Symbol litSym = tokenFrom(lit, litleft, litright, sym.FLOAT); RESULT = literalAttr(litSym, "0.0", "FLOAT"); :};
 
 //Operaciones aritmeticas simples entre dos numeros
 /* Reglas de producción para operaciones aritméticas */
-compAritOp ::= term
-             | compAritOp MAS term   {: System.out.println("Se hizo SUMA"); :}
-             | compAritOp MENOS term  {: System.out.println("Se hizo RESTA"); :};
+compAritOp ::= term:t {: RESULT = t; :}
+             | compAritOp:l MAS:op term:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MAS); RESULT = numericBinary("+", (ExprAttr)l, (ExprAttr)r, opSym); :}
+             | compAritOp:l MENOS:op term:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MENOS); RESULT = numericBinary("-", (ExprAttr)l, (ExprAttr)r, opSym); :};
 
-term       ::= factor
-             | term MULTI factor  {: System.out.println("Se hizo PRODUCTO"); :}
-             | term DIV factor {: System.out.println("Se hizo COCIENTE"); :}
-             | term POTENCIA factor {: System.out.println("Se hizo POTENCIA"); :}
-             | term FLOAT_DIV factor {: System.out.println("Se hizo MODULO"); :};
+term       ::= factor:f {: RESULT = f; :}
+             | term:l MULTI:op factor:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MULTI); RESULT = numericBinary("*", (ExprAttr)l, (ExprAttr)r, opSym); :}
+             | term:l DIV:op factor:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.DIV); RESULT = numericBinary("/", (ExprAttr)l, (ExprAttr)r, opSym); :}
+             | term:l POTENCIA:op factor:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.POTENCIA); RESULT = numericBinary("^", (ExprAttr)l, (ExprAttr)r, opSym); :}
+             | term:l FLOAT_DIV:op factor:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.FLOAT_DIV); RESULT = numericBinary("%", (ExprAttr)l, (ExprAttr)r, opSym); :};
 
-factor     ::= numbers
-             | MENOS numbers
-             | STRING_LITERAL
-             | CHARSTR
-             | IDENTIFIER 
-             | IDENTIFIER DMENOS     
-             | IDENTIFIER DMAS
-             | arrayElement
-             | paramList
-             | funcInvo
-             | MENOS UKRA compAritOp RUSS
-             | UKRA compAritOp RUSS;  
+factor     ::= numbers:n {: RESULT = n; :}
+             | MENOS:op numbers:n {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MENOS); RESULT = numericUnary("-", (ExprAttr)n, opSym); :}
+             | STRING_LITERAL:lit {: Symbol litSym = tokenFrom(lit, litleft, litright, sym.STRING_LITERAL); RESULT = literalAttr(litSym, "\"\"", "STRING"); :}
+             | CHARSTR:ch {: Symbol chSym = tokenFrom(ch, chleft, chright, sym.CHARSTR); RESULT = literalAttr(chSym, "'?'", "CHAR"); :}
+             | IDENTIFIER:id {: Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER); RESULT = identifierExpr(lexeme(id), idSym); :}
+             | IDENTIFIER:id DMENOS:op {: 
+                    Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER);
+                    Symbol opSym = tokenFrom(op, opleft, opright, sym.DMENOS);
+                    ExprAttr base = identifierExpr(lexeme(id), idSym);
+                    String step = "FLOAT".equals(base.type) ? "1.0" : "1";
+                    ExprAttr result = numericBinary("-", base, literalAttr(null, step, base.type), opSym);
+                    emit(lexeme(id) + " = " + result.place);
+                    RESULT = result;
+                :}
+             | IDENTIFIER:id DMAS:op {: 
+                    Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER);
+                    Symbol opSym = tokenFrom(op, opleft, opright, sym.DMAS);
+                    ExprAttr base = identifierExpr(lexeme(id), idSym);
+                    String step = "FLOAT".equals(base.type) ? "1.0" : "1";
+                    ExprAttr result = numericBinary("+", base, literalAttr(null, step, base.type), opSym);
+                    emit(lexeme(id) + " = " + result.place);
+                    RESULT = result;
+                :}
+             | IDENTIFIER:id UKRA argListOpt:args RUSS {: Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER); RESULT = invokeFunction(lexeme(id), (ArrayList)args, idSym); :}
+             | arrayElement:arr {: RESULT = arr; :}
+             | MENOS:op UKRA exprP:e RUSS {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MENOS); RESULT = numericUnary("-", (ExprAttr)e, opSym); :}
+             | UKRA exprP:e RUSS {: RESULT = e; :}
+             | TRUE {: RESULT = new ExprAttr("true", "BOOL", true); :}
+             | FALSE {: RESULT = new ExprAttr("false", "BOOL", true); :};
 
 
-inputStruct ::= INPUT UKRA IDENTIFIER RUSS DOLLAR;
+inputStruct ::= INPUT UKRA IDENTIFIER:id RUSS DOLLAR {: 
+                    Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER);
+                    String name = lexeme(id);
+                    SymbolInfo info = lookupSymbol(name);
+                    if (info == null) {
+                        reportSemanticError("Variable '" + name + "' no declarada", idSym);
+                    } else if (info.isArray) {
+                        reportSemanticError("No se puede leer directamente un arreglo", idSym);
+                    } else {
+                        emit("read " + name);
+                    }
+                :};
 
 
 //Manejo de distintas expresiones de comparacion y union
-exprP ::= exprLog 
-      | compAritOp        
-      | exprUni;
+exprP ::= exprLog:e {: RESULT = e; :};
 
-exprLog ::= compAritOp opRel compAritOp
-        | UKRA exprLog RUSS
-        | opRel exprLog
-        | TRUE
-        | FALSE;
+exprLog ::= exprLog:l AND:op exprRel:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.AND); RESULT = logicalBinary("&&", (ExprAttr)l, (ExprAttr)r, opSym); :}
+    | exprLog:l OR:op exprRel:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.OR); RESULT = logicalBinary("||", (ExprAttr)l, (ExprAttr)r, opSym); :}
+    | exprRel:e {: RESULT = e; :};
 
-exprUni ::= exprLog opLog exprP      {: System.out.println("Operacion logica realizada"); :}
-        | IDENTIFIER opLog exprP     {: System.out.println("Operacion logica localizada"); :}
-        | PARENTS exprUni PARENTC    {: System.out.println("Operacion unitaria"); :};
-
-opRel ::= GREATHER | LESS | MORE | LOWER | DIFF | COMPARA | NEGA;
-opLog ::= AND | OR;
+exprRel ::= compAritOp:l GREATHER:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.GREATHER); RESULT = compareBinary(">", (ExprAttr)l, (ExprAttr)r, opSym); :}
+          | compAritOp:l LESS:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.LESS); RESULT = compareBinary("<", (ExprAttr)l, (ExprAttr)r, opSym); :}
+          | compAritOp:l MORE:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MORE); RESULT = compareBinary(">=", (ExprAttr)l, (ExprAttr)r, opSym); :}
+          | compAritOp:l LOWER:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.LOWER); RESULT = compareBinary("<=", (ExprAttr)l, (ExprAttr)r, opSym); :}
+          | compAritOp:l DIFF:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.DIFF); RESULT = compareBinary("!=", (ExprAttr)l, (ExprAttr)r, opSym); :}
+          | compAritOp:l COMPARA:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.COMPARA); RESULT = compareBinary("==", (ExprAttr)l, (ExprAttr)r, opSym); :}
+          | NEGA:op exprRel:e {: Symbol opSym = tokenFrom(op, opleft, opright, sym.NEGA); RESULT = logicalUnary("!", (ExprAttr)e, opSym); :}
+          | compAritOp:e {: RESULT = e; :};
 
 
 
 
 //Asignación de un valor a una variable
-varAsig      ::=  IDENTIFIER EQ exprP DOLLAR       {:System.out.println("Se asigno Variable");:}
-             | EQ exprP DOLLAR;
+varAsig      ::=  IDENTIFIER:id EQ:eq exprP:exp DOLLAR       {:
+                    Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER);
+                    Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ);
+                    String name = lexeme(id);
+                    SymbolInfo target = lookupSymbol(name);
+                    if (target == null) {
+                        reportSemanticError("Variable '" + name + "' no declarada", idSym);
+                    } else if (target.isArray) {
+                        reportSemanticError("No se puede asignar a un arreglo completo sin indice", idSym);
+                    } else {
+                        recordAssignment(target, (ExprAttr)exp, eqSym);
+                    }
+                :}
+             | arrayElement:elem EQ:eq exprP:exp DOLLAR       {:
+                    Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ);
+                    ExprAttr lhs = (ExprAttr)elem;
+                    ExprAttr rhs = (ExprAttr)exp;
+                    emitArrayStore(lhs, rhs, eqSym);
+                :}
+             | EQ:eq exprP DOLLAR {: Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ); reportSemanticError("Asignacion sin destino", eqSym); :};
 
 
 //Instanciacion simple de variables
-    varIns       ::= LET INT IDENTIFIER:ID    {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}    
-                 | LET CHAR IDENTIFIER:ID     {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}      
-                 | LET FLOAT IDENTIFIER:ID    {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "FLOAT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-                 | LET BOOL IDENTIFIER:ID     {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "BOOL" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}    
-                 | LET STRING IDENTIFIER:ID  {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia: " + ID.toString() + ":" + "STRING" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
+    varIns       ::= LET INT IDENTIFIER:ID    {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "INT", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":INT"); :}    
+                 | LET CHAR IDENTIFIER:ID     {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "CHAR", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":CHAR"); :}      
+                 | LET FLOAT IDENTIFIER:ID    {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "FLOAT", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":FLOAT"); :}
+                 | LET BOOL IDENTIFIER:ID     {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "BOOL", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":BOOL"); :}    
+                 | LET STRING IDENTIFIER:ID  {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "STRING", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":STRING"); :};
 
 
 
-    varInsGl     ::=  GLOBAL LET INT IDENTIFIER:ID     {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-                 | GLOBAL LET CHAR IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-                 | GLOBAL LET FLOAT IDENTIFIER:ID      {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "FLOAT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-                 | GLOBAL LET STRING IDENTIFIER:ID    {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "STRING" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-                 | GLOBAL LET BOOL IDENTIFIER:ID       {: scopePrograma.get(globalHash).add("Instancia GLOBAL: " + ID.toString() + ":" + "BOOL" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
+    varInsGl     ::=  GLOBAL LET INT IDENTIFIER:ID     {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "INT", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":INT"); :}
+                 | GLOBAL LET CHAR IDENTIFIER:ID       {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "CHAR", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":CHAR"); :}
+                 | GLOBAL LET FLOAT IDENTIFIER:ID      {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "FLOAT", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":FLOAT"); :}
+                 | GLOBAL LET STRING IDENTIFIER:ID    {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "STRING", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":STRING"); :}
+                 | GLOBAL LET BOOL IDENTIFIER:ID       {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "BOOL", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":BOOL"); :};
 
     varInsAsig   ::= varIns varAsig;
 
     varInsAsigGl   ::= varInsGl varAsig;
 
     
-    funInitial   ::= FUNC INT IDENTIFIER:ID
-                            {:   String tipo;
-                                                             tipo = "tipo:func:INT";
-                                                             ArrayList<String> fun = new ArrayList<String>();
-                                                             currentHash = ID.toString();
-                                                             fun.add(tipo);
-                                                             scopePrograma.put(currentHash, fun);
-                            :}
-                 | FUNC CHAR IDENTIFIER:ID
-                            {:   String tipo;
-                                                             tipo = "tipo:func:CHAR";
-                                                             ArrayList<String> fun = new ArrayList<String>();
-                                                             currentHash = ID.toString();
-                                                             fun.add(tipo);
-                                                             scopePrograma.put(currentHash, fun);
-                            :}
-                 | FUNC BOOL IDENTIFIER:ID
-                            {:   String tipo;
-                                                             tipo = "tipo:func:BOOL";
-                                                             ArrayList<String> fun = new ArrayList<String>();
-                                                             currentHash = ID.toString();
-                                                             fun.add(tipo);
-                                                             scopePrograma.put(currentHash, fun);
-                            :}
-                 | FUNC STRING IDENTIFIER:ID
-                            {:   String tipo;
-                                                             tipo = "tipo:func:STRING";
-                                                             ArrayList<String> fun = new ArrayList<String>();
-                                                             currentHash = ID.toString();
-                                                             fun.add(tipo);
-                                                             scopePrograma.put(currentHash, fun);
-                            :}
-                 | FUNC FLOAT IDENTIFIER:ID
-                            {:   String tipo;
-                                                             tipo = "tipo:func:FLOAT";
-                                                             ArrayList<String> fun = new ArrayList<String>();
-                                                             currentHash = ID.toString();
-                                                             fun.add(tipo);
-                                                             scopePrograma.put(currentHash, fun);
-                            :};
+    funInitial   ::= INT IDENTIFIER:ID
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "INT", idSym); emit("begin_func " + name); :}
+                 | CHAR IDENTIFIER:ID
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "CHAR", idSym); emit("begin_func " + name); :}
+                 | BOOL IDENTIFIER:ID
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "BOOL", idSym); emit("begin_func " + name); :}
+                 | STRING IDENTIFIER:ID
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "STRING", idSym); emit("begin_func " + name); :}
+                 | FLOAT IDENTIFIER:ID
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "FLOAT", idSym); emit("begin_func " + name); :};
 
     //Declaracion inicial del bloque para las funciones
-    funcStruct    ::= 
-                 // funcion con return sin contenido
-                 funInitial INIT_BLOCK BLOCK RETURN DOLLAR END_BLOCK  
+    funcStruct    ::= funInitial paramSection blockStart BLOCK END_BLOCK {: String finished = currentHash; emit("end_func " + (finished != null ? finished : "?")); FunctionInfo info = finished != null ? functionTable.get(finished) : null; if (info != null && !info.hasReturn) { reportSemanticError("La funcion '" + finished + "' no retorna", null); } closeCurrentScope(); :};  
 
-                 // funcion con return con contenido  
-                 | funInitial INIT_BLOCK BLOCK RETURN exprP DOLLAR END_BLOCK;  
+paramSection ::= UKRA paramDeclList paramSectionClose
+               | UKRA paramSectionClose
+               | /* empty */;
 
-paramFunc    ::= exprP COMA paramFunc 
-             | exprP;
+paramSectionClose ::= RUSS
+                    | /* empty */;
 
-funcInvo     ::= IDENTIFIER UKRA paramFunc RUSS
-             | IDENTIFIER UKRA RUSS;
+paramDeclList ::= paramDecl
+                | paramDecl COMA paramDeclList;
 
-mainInitial  ::= FUNC INT MAIN 
-                            {:                       String tipo;
-                                                         tipo = "tipo:MAIN:INT";
-                                                         ArrayList<String> fun = new ArrayList<String>();
-                                                         currentHash = "MAIN";
-                                                         fun.add(tipo);
-                                                         scopePrograma.put(currentHash, fun);
-                            :};
+paramDecl ::= INT IDENTIFIER:ID   {: registrarParametroEnScope(lexeme(ID), "INT", IDleft, IDright); :}
+            | CHAR IDENTIFIER:ID  {: registrarParametroEnScope(lexeme(ID), "CHAR", IDleft, IDright); :}
+            | FLOAT IDENTIFIER:ID {: registrarParametroEnScope(lexeme(ID), "FLOAT", IDleft, IDright); :}
+            | BOOL IDENTIFIER:ID  {: registrarParametroEnScope(lexeme(ID), "BOOL", IDleft, IDright); :}
+            | STRING IDENTIFIER:ID{: registrarParametroEnScope(lexeme(ID), "STRING", IDleft, IDright); :};
 
-mainStruct  ::= mainInitial INIT_BLOCK RETURN DOLLAR END_BLOCK  
-             | mainInitial INIT_BLOCK BLOCK RETURN exprP DOLLAR END_BLOCK;
+blockStart ::= INIT_BLOCK blockStartClose;
+
+blockStartClose ::= RUSS
+                  | /* empty */;
+
+argListOpt ::= argList:l {: RESULT = l; :}
+             | /* empty */ {: RESULT = new ArrayList(); :};
+
+argList ::= exprP:e {: ArrayList tmp = new ArrayList(); tmp.add((ExprAttr)e); RESULT = tmp; :}
+          | exprP:e COMA argList:rest {: ArrayList tmp = new ArrayList(); tmp.add((ExprAttr)e); tmp.addAll((ArrayList)rest); RESULT = tmp; :};
+
+     mainStruct  ::= mainInitial paramSection blockStart BLOCK END_BLOCK {: emit("end_main"); closeCurrentScope(); :};
+
+      mainInitial  ::= PRINCIPAL:KW 
+                                                 {: Symbol kwSym = tokenFrom(KW, KWleft, KWright, sym.PRINCIPAL);
+                                                     startFunctionScope("MAIN", "INT", kwSym);
+                                                     emit("begin_main");
+                                                 :};
 
 //Estructura decide of
-decideOfStruct ::= DECIDE_OF decideOfCases END_DECIDE DOLLAR;
+decideOfStruct ::= DECIDE OF {: beginDecideStructure(); :} decideClauseList END DECIDE DOLLAR {: endDecideStructure(); :};
 
-decideOfCases ::= /* empty */ {:System.out.println("Se declaro estructura decide of sin cuerpo");:}
-                | decideOfCase 
-                | decideOfCase decideOfElseStruct;
+decideClauseList ::= decideClauseList decideClause
+                   | decideClause;
 
-decideOfCase ::= UKRA exprP ARROW INIT_BLOCK BLOCK END_BLOCK RUSS {:System.out.println("Se declaro caso de decide of");:}
-               | decideOfCase UKRA exprP ARROW INIT_BLOCK BLOCK END_BLOCK RUSS;
+decideClause ::= caseCondition:cond ARROW INIT_BLOCK {: beginDecideCase((ExprAttr)cond, null); :} BLOCK END_BLOCK {: endDecideCase(); :}
+               | ELSE ARROW INIT_BLOCK {: beginDecideElse(); :} BLOCK END_BLOCK {: endDecideElse(); :};
 
-decideOfElseStruct ::= UKRA ELSE ARROW INIT_BLOCK BLOCK END_BLOCK RUSS {:System.out.println("Se declaro else de decide of");:};
+caseCondition ::= exprP;
 
                   
 //Produccion loop
-loopStruct ::= LOOP exprP EXIT_WHEN exprP DOLLAR END_LOOP DOLLAR  {:System.out.println("Se declaro estructura loop con expresion");:}
-            | LOOP BLOCK EXIT_WHEN exprP DOLLAR END_LOOP DOLLAR {:System.out.println("Se declaro estructura loop con bloque");:};
+loopStruct ::= LOOP {: beginLoopStructure(); :} loopBody EXIT:exitTok WHEN exprP:exitCond DOLLAR END LOOP DOLLAR {: Symbol exitSym = tokenFrom(exitTok, exitTokleft, exitTokright, sym.EXIT); finalizeLoopBody((ExprAttr)exitCond, exitSym); endLoopStructure(); :} loopElseOpt;
+
+loopBody ::= exprP
+          | BLOCK;
+
+loopElseOpt ::= ELSE ARROW INIT_BLOCK BLOCK END_BLOCK {: emit("// rama else del loop"); :}
+              | /* empty */;
  
 
 //Declaracion de estructura for
-forStruct ::= FOR varInsAsig STEP INT UKRA TO exprP DO INIT_BLOCK BLOCK END_BLOCK {:System.out.println("Se declaro estructura for con to");:}
-           | FOR varInsAsig STEP INT UKRA DOWNTO exprP DO INIT_BLOCK BLOCK END_BLOCK {:System.out.println("Se declaro estructura for con downto");:};
+forStruct ::= FOR forInit:init STEP stepValue:step TO exprP:limit DO {: beginForLoop((ExprAttr)init, (ExprAttr)step, (ExprAttr)limit, false); :} blockStart BLOCK END_BLOCK {: endForLoop(); :}
+           | FOR forInit:init STEP stepValue:step DOWNTO exprP:limit DO {: beginForLoop((ExprAttr)init, (ExprAttr)step, (ExprAttr)limit, true); :} blockStart BLOCK END_BLOCK {: endForLoop(); :};
+
+forInit ::= IDENTIFIER:id EQ:eq exprP:exp
+          {:
+              Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER);
+              Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ);
+              String name = lexeme(id);
+              SymbolInfo info = lookupSymbol(name);
+              ExprAttr rhs = (ExprAttr)exp;
+              if (info == null) {
+                  reportSemanticError("Variable '" + name + "' no declarada", idSym);
+                  RESULT = ExprAttr.invalid();
+              } else {
+                  recordAssignment(info, rhs, eqSym);
+                  RESULT = new ExprAttr(info.name, info.type, false);
+              }
+          :}
+          | arrayElement:elem EQ:eq exprP:exp
+          {:
+              Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ);
+              reportSemanticError("Los ciclos FOR requieren una variable ESCALAR como control", eqSym);
+              RESULT = ExprAttr.invalid();
+          :};
+
+stepValue ::= exprP:exp {: RESULT = ensureNumeric((ExprAttr)exp, null, "step value"); :};
 
 
 //Declaracion, asignacion y acceso a un array
-arrayIns ::=  INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia local ARR: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-            | CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: String target = (currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia local ARR: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
+arrayIns ::=  INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL); String name = lexeme(ID); int len = Math.max(0, literalToInt(szSym)); SymbolInfo info = declareSymbol(currentHash, name, "INT", true, len, false, false, idSym); if (info != null) { emit("declare_arr " + name + "[" + len + "] INT"); if (len > 0) emit("arr_pad_zero " + name + ", 0, " + len); } :}
+            | CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL); String name = lexeme(ID); int len = Math.max(0, literalToInt(szSym)); SymbolInfo info = declareSymbol(currentHash, name, "CHAR", true, len, false, false, idSym); if (info != null) { emit("declare_arr " + name + "[" + len + "] CHAR"); if (len > 0) emit("arr_pad_zero " + name + ", 0, " + len); } :};
 
 //Declaracion global de array
-arrayInsGl ::=  GLOBAL INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC  {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-            | GLOBAL CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL SQUAREC {: scopePrograma.get(globalHash).add("Instancia global ARR: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
+arrayInsGl ::=  GLOBAL INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC  {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL); String name = lexeme(ID); int len = Math.max(0, literalToInt(szSym)); SymbolInfo info = declareSymbol(globalHash, name, "INT", true, len, false, true, idSym); if (info != null) { emit("declare_global_arr " + name + "[" + len + "] INT"); if (len > 0) emit("arr_pad_zero " + name + ", 0, " + len); } :}
+            | GLOBAL CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL); String name = lexeme(ID); int len = Math.max(0, literalToInt(szSym)); SymbolInfo info = declareSymbol(globalHash, name, "CHAR", true, len, false, true, idSym); if (info != null) { emit("declare_global_arr " + name + "[" + len + "] CHAR"); if (len > 0) emit("arr_pad_zero " + name + ", 0, " + len); } :};
 
 //Declaracion de ARRAYS Y TODO LO RELACIONADO
-arrayAsig ::= IDENTIFIER EQ SQUARES elementos SQUAREC DOLLAR
-          | EQ SQUARES elementos SQUAREC DOLLAR;
+arrayAsig ::= IDENTIFIER:id EQ:eq SQUARES elementos:vals SQUAREC DOLLAR {: 
+                    Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER);
+                    Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ);
+                    String name = lexeme(id);
+                    SymbolInfo info = lookupSymbol(name);
+                    if (info == null) {
+                        reportSemanticError("Arreglo '" + name + "' no declarado", idSym);
+                    } else if (!info.isArray) {
+                        reportSemanticError("'" + name + "' no es un arreglo", idSym);
+                    } else {
+                        ArrayList<ExprAttr> list = (ArrayList<ExprAttr>)vals;
+                        ensureHomogeneousElements(list, eqSym);
+                        if (list != null) {
+                            if (info.arraySize > 0 && list.size() > info.arraySize) {
+                                reportSemanticError("Demasiados elementos para '" + name + "'", eqSym);
+                            }
+                            for (int i = 0; i < list.size(); i++) {
+                                if (info.arraySize > 0 && i >= info.arraySize) {
+                                    break;
+                                }
+                                ExprAttr expr = list.get(i);
+                                if (expr == null || !expr.isValid()) {
+                                    reportSemanticError("Elemento invalido en inicializacion de '" + name + "'", eqSym);
+                                    continue;
+                                }
+                                if (!info.type.equals(expr.type)) {
+                                    reportSemanticError("Elemento no compatible para arreglo '" + name + "'", eqSym);
+                                    continue;
+                                }
+                                emit("astore " + name + ", " + i + ", " + expr.place);
+                            }
+                            if (info.arraySize > 0 && list.size() < info.arraySize) {
+                                emit("arr_pad_zero " + name + ", " + list.size() + ", " + info.arraySize);
+                            }
+                        } else if (info.arraySize > 0) {
+                            emit("arr_pad_zero " + name + ", 0, " + info.arraySize);
+                        }
+                    }
+                :}
+          | EQ:eq SQUARES elementos SQUAREC DOLLAR {: Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ); reportSemanticError("Se requiere identificador para asignar arreglo", eqSym); :};
 
-elementos ::= compAritOp COMA elementos| compAritOp;
+elementos ::= compAritOp:e COMA elementos:rest {: ArrayList<ExprAttr> tmp = new ArrayList<>(); tmp.add((ExprAttr)e); tmp.addAll((ArrayList<ExprAttr>)rest); RESULT = tmp; :}
+           | compAritOp:e {: ArrayList<ExprAttr> tmp = new ArrayList<>(); tmp.add((ExprAttr)e); RESULT = tmp; :};
 
 arrayInsAsign ::= arrayIns arrayAsig;
 
 arrayInsAsignGl ::= arrayInsGl arrayAsig;
 
-arrayElement ::= IDENTIFIER SQUARES INT_LITERAL SQUAREC;
+arrayElement ::= IDENTIFIER:id SQUARES compAritOp:expr SQUAREC {: Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER); RESULT = arrayAccess(lexeme(id), (ExprAttr)expr, idSym, null); :};
 
 //Declaracion de parametros
-paramStruct ::= PARAM INT IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-    | PARAM CHAR IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-    | PARAM STRING IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "STRING" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-    | PARAM FLOAT IDENTIFIER:ID {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "FLOAT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
-    | PARAM BOOL IDENTIFIER:ID  {: String target=(currentHash!=null?currentHash:globalHash); scopePrograma.get(target).add("Instancia PARAM: " + ID.toString() + ":" + "BOOL" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
+paramStruct ::= PARAM INT IDENTIFIER:ID {: String lex = lexeme(ID); String target=(currentHash!=null?currentHash:globalHash); ensureScopeBucket(target); scopePrograma.get(target).add("Instancia PARAM: " + lex + ":" + "INT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM CHAR IDENTIFIER:ID {: String lex = lexeme(ID); String target=(currentHash!=null?currentHash:globalHash); ensureScopeBucket(target); scopePrograma.get(target).add("Instancia PARAM: " + lex + ":" + "CHAR" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM STRING IDENTIFIER:ID {: String lex = lexeme(ID); String target=(currentHash!=null?currentHash:globalHash); ensureScopeBucket(target); scopePrograma.get(target).add("Instancia PARAM: " + lex + ":" + "STRING" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM FLOAT IDENTIFIER:ID {: String lex = lexeme(ID); String target=(currentHash!=null?currentHash:globalHash); ensureScopeBucket(target); scopePrograma.get(target).add("Instancia PARAM: " + lex + ":" + "FLOAT" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :}
+    | PARAM BOOL IDENTIFIER:ID  {: String lex = lexeme(ID); String target=(currentHash!=null?currentHash:globalHash); ensureScopeBucket(target); scopePrograma.get(target).add("Instancia PARAM: " + lex + ":" + "BOOL" + ":line=" + (IDleft+1) + ":col=" + (IDright+1)); :};
 
 paramList ::= paramStruct paramList
        | paramStruct;
 
 
-outPutStruct ::= OUTPUT UKRA IDENTIFIER RUSS
-           | OUTPUT UKRA CHARSTR RUSS
-           | OUTPUT UKRA STRING_LITERAL RUSS;
+outPutStruct ::= OUTPUT UKRA exprP:exp RUSS {: ExprAttr value = (ExprAttr)exp; if (value != null && value.isValid()) emit("print " + value.place); :};
 
-//Manejo de errores
-
-error ::= 
-    error DOLLAR {: System.out.println("Error de sintaxis: se esperaba $ "); :}
-    | error IDENTIFIER {: System.out.println("Error de sintaxis: se esperaba un identificador "); :}
-    | error MAS {: System.out.println("Error de sintaxis: se esperaba + "); :}
-    | error MENOS {: System.out.println("Error de sintaxis: se esperaba - "); :}
-    | error MULTI {: System.out.println("Error de sintaxis: se esperaba * "); :}
-    | error DIV {: System.out.println("Error de sintaxis: se esperaba / "); :}
-    | error POTENCIA {: System.out.println("Error de sintaxis: se esperaba ^ "); :}
-    | error FLOAT_DIV {: System.out.println("Error de sintaxis: se esperaba // "); :}
-    | error STRING {: System.out.println("Error de sintaxis: se esperaba un string "); :}
-    | error EQ {: System.out.println("Error de sintaxis: se esperaba = "); :}
-    | error COMPARA {: System.out.println("Error de sintaxis: se esperaba == "); :}
-    | error BOOL {: System.out.println("Error de sintaxis: se esperaba una expresion booleana "); :}
-    | error INT {: System.out.println("Error de sintaxis: se esperaba int "); :}
-    | error CHAR {: System.out.println("Error de sintaxis: se esperaba char "); :}
-    | error BREAK {: System.out.println("Error de sintaxis: se esperaba break "); :}
-    | error INT_LITERAL {: System.out.println("Error de sintaxis: La expresion no corresponde con un numero "); :}
-    | error FLOAT {: System.out.println("Error de sintaxis: La expresion debe ser un numero flotante "); :}
-    | error TRUE {: System.out.println("Error de sintaxis: se esperaba true "); :}
-    | error FALSE {: System.out.println("Error de sintaxis: se esperaba false "); :}
-    | error INIT_BLOCK {: System.out.println("Error de sintaxis: se esperaba ¿ "); :}
-    | error END_BLOCK {: System.out.println("Error de sintaxis: se esperaba ? "); :}
-    | error END_BLOCK {: System.out.println("Error de sintaxis: se esperaba ? "); :}
-    | error ELSE {: System.out.println("Error de sintaxis: se esperaba else "); :}
-    | error DECIDE_OF {: System.out.println("Error de sintaxis: se esperaba decide of "); :}
-    | error END_DECIDE {: System.out.println("Error de sintaxis: se esperaba end decide "); :}
-    | error ARROW {: System.out.println("Error de sintaxis: se esperaba -> "); :}
-    | error LOOP {: System.out.println("Error de sintaxis: se esperaba loop "); :}
-    | error EXIT_WHEN {: System.out.println("Error de sintaxis: se esperaba exit when "); :}
-    | error END_LOOP {: System.out.println("Error de sintaxis: se esperaba end loop "); :}
-    | error STEP {: System.out.println("Error de sintaxis: se esperaba step "); :}
-    | error TO {: System.out.println("Error de sintaxis: se esperaba to "); :}          
-    | error DOWNTO {: System.out.println("Error de sintaxis: se esperaba downto "); :}
-    | error DO {: System.out.println("Error de sintaxis: se esperaba do "); :}
-    | error FOR {: System.out.println("Error de sintaxis: se esperaba for "); :}
-    | error GREATHER {: System.out.println("Error de sintaxis: se esperaba > "); :}
-    | error LOWER {: System.out.println("Error de sintaxis: se esperaba < "); :}
-    | error MORE {: System.out.println("Error de sintaxis: se esperaba >= "); :}
-    | error LESS {: System.out.println("Error de sintaxis: se esperaba <= "); :}
-    | error COMPARA {: System.out.println("Error de sintaxis: se esperaba == "); :}
-    | error DIFF {: System.out.println("Error de sintaxis: se esperaba != "); :}
-    | error NEGA {: System.out.println("Error de sintaxis: se esperaba Σ "); :}
-    | error AND {: System.out.println("Error de sintaxis: se esperaba @ "); :}
-    | error OR {: System.out.println("Error de sintaxis: se esperaba ~ "); :}
-    | error FUNC {: System.out.println("Error de sintaxis: se esperaba func "); :}
-    | error MAIN {: System.out.println("Error de sintaxis: se esperaba main "); :}
-    | error PARAM {: System.out.println("Error de sintaxis: se esperaba un parametro "); :}
-    | error PARENTS {: System.out.println("Error de sintaxis: se esperaba ( "); :}
-    | error PARENTC {: System.out.println("Error de sintaxis: se esperaba ) "); :}
-    | error SQUARES {: System.out.println("Error de sintaxis: se esperaba [ "); :}
-    | error SQUAREC {: System.out.println("Error de sintaxis: se esperaba ] "); :}
-    | error GLOBAL {: System.out.println("Error de sintaxis: se esperaba global "); :}
-    | error RETURN {: System.out.println("Error de sintaxis: se esperaba return "); :}
-    | error OUTPUT {: System.out.println("Error de sintaxis: se esperaba output "); :}
-    | error INPUT {: System.out.println("Error de sintaxis: se esperaba input "); :};
+// Error recovery - simplified
+error ::= error DOLLAR {: System.out.println("Syntax error"); :};

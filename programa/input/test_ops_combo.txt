@@ -1,0 +1,19 @@
+let int gi$
+let float gf$
+let bool gb$
+
+principal ¿
+    let int suma$
+    suma = gi + gi$
+    let float mix$
+    mix = gf + gf$
+    let bool conj$
+    conj = gb @ true$
+    mix = mix + gi$
+    conj = conj @ suma$
+    int array arrA[3]$
+    arrA = ¿1,2,3?
+    int array arrBad[2]$
+    arrBad = ¿1,true,3?
+    return suma$
+?

@@ -1,0 +1,19 @@
+int main ¿
+	let int a$
+	let int b$
+	let int c$
+	let float f$
+	
+	a = 10$
+	b = 5$
+	c = a + b$
+	c = a - b$
+	c = a * b$
+	c = a / b$
+	f = 3.14$
+	
+	output є a э $
+	output є c э $
+	
+	return 0$
+?

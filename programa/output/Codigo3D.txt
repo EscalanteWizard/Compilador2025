@@ -1,0 +1,18 @@
+declare gi:INT
+declare gf:FLOAT
+declare gb:BOOL
+begin_main
+declare suma:INT
+t1 = gi + gi
+suma = t1
+declare mix:FLOAT
+f2 = gf + gf
+mix = f2
+declare conj:BOOL
+t3 = gb && true
+conj = t3
+declare_arr arrA[3] INT
+arr_pad_zero arrA, 0, 3
+declare_arr arrBad[2] INT
+arr_pad_zero arrBad, 0, 2
+end_main

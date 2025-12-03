@@ -59,6 +59,7 @@ TraditionalComment   = "/*" [^*] ~"*/" | "/*" "*"+ "/"
 EndOfLineComment     = "//" {InputCharacter}* {LineTerminator}?
 DocumentationComment = "/**" {CommentContent} "*"+ "/"
 CommentContent       = ( [^*] | \*+ [^/*] )*
+PipeComment          = "|"[^\r\n]*
 
 // Restrict identifiers to ASCII letters, digits and underscore (avoid including '$' in identifiers)
 Identifier = [A-Za-z_][A-Za-z0-9_]*
@@ -74,6 +75,7 @@ true = "true"
 
 %state STRING
 %state CHARSTR
+%state COMMENT_BLOCK
 
 %%
 
@@ -82,8 +84,8 @@ true = "true"
 <YYINITIAL> "break"              { return symbol(sym.BREAK); }
 
 <YYINITIAL> {dot}                { System.out.println("punto"); return symbol(sym.DOT, yyline, yycolumn, yytext()); }
-<YYINITIAL> {DecIntegerLiteral}     { return symbol(sym.INT_LITERAL); }
-<YYINITIAL> {floatNum}           { System.out.println("flotante"); return symbol(sym.FLOAT); }
+<YYINITIAL> {DecIntegerLiteral}     { return symbol(sym.INT_LITERAL, yytext()); }
+<YYINITIAL> {floatNum}           { System.out.println("flotante"); return symbol(sym.FLOAT, yytext()); }
 <YYINITIAL> "true"               { System.out.println("true"); return symbol(sym.TRUE); }
 <YYINITIAL> "false"              { return symbol(sym.FALSE); }
 
@@ -94,13 +96,15 @@ true = "true"
 
 <YYINITIAL> "*"                  { return symbol(sym.MULTI); }
 <YYINITIAL> "/"                  { return symbol(sym.DIV); }
-<YYINITIAL> "//"                  { return symbol(sym.FLOAT_DIV); }
+<YYINITIAL> "//"                 { return symbol(sym.FLOAT_DIV); }
+<YYINITIAL> "%"                  { return symbol(sym.FLOAT_DIV); }
 <YYINITIAL> "^"                  { return symbol(sym.POTENCIA); }
 
 <YYINITIAL> "¿"                  { return symbol(sym.INIT_BLOCK); }
 <YYINITIAL> "?"                  { return symbol(sym.END_BLOCK); }
 <YYINITIAL> "$"                  { return symbol(sym.DOLLAR); }
 <YYINITIAL> "global"               { return symbol(sym.GLOBAL); }
+<YYINITIAL> "principal"           { return symbol(sym.PRINCIPAL); }
 
 <YYINITIAL> "int"                { return symbol(sym.INT); }
 <YYINITIAL> "char"               { return symbol(sym.CHAR); }
@@ -109,14 +113,15 @@ true = "true"
 <YYINITIAL> "string"             { return symbol(sym.STRING); }
 <YYINITIAL> "array"              { return symbol(sym.ARRAY); }
 
-<YYINITIAL> "decide of"          { return symbol(sym.DECIDE_OF); }
+<YYINITIAL> "decide"          { return symbol(sym.DECIDE); }
+<YYINITIAL> "of"                 { return symbol(sym.OF); }
 <YYINITIAL> "->"                 { return symbol(sym.ARROW); }
 <YYINITIAL> "else"               { return symbol(sym.ELSE); }
-<YYINITIAL> "end decide"         { return symbol(sym.END_DECIDE); }
 
 <YYINITIAL> "loop"               { return symbol(sym.LOOP); }
-<YYINITIAL> "exit when"          { return symbol(sym.EXIT_WHEN); }
-<YYINITIAL> "end loop"           { return symbol(sym.END_LOOP); }
+<YYINITIAL> "exit"               { return symbol(sym.EXIT); }
+<YYINITIAL> "when"               { return symbol(sym.WHEN); }
+<YYINITIAL> "end"                { return symbol(sym.END); }
 
 <YYINITIAL> "for"                { return symbol(sym.FOR); }
 <YYINITIAL> "to"                 { return symbol(sym.TO); }
@@ -130,8 +135,8 @@ true = "true"
 <YYINITIAL> "["                   { return symbol(sym.SQUARES); }
 <YYINITIAL> "]"                   { return symbol(sym.SQUAREC); }
 
-<YYINITIAL> "Є"                   { return symbol(sym.UKRA); }
-<YYINITIAL> "Э"                   { return symbol(sym.RUSS); }
+<YYINITIAL> "є"                   { return symbol(sym.UKRA); }
+<YYINITIAL> "э"                   { return symbol(sym.RUSS); }
 
 <YYINITIAL> "="                 { return symbol(sym.EQ); }
 <YYINITIAL> ">"                  { return symbol(sym.GREATHER); }
@@ -144,14 +149,19 @@ true = "true"
 <YYINITIAL> "~"                 { return symbol(sym.OR); }
 <YYINITIAL> "Σ"                  { return symbol(sym.NEGA); }
 
-<YYINITIAL> "|"                  { return symbol(sym.COMMENT); }
-<YYINITIAL> "!"                  { return symbol(sym.INIT_COMMENT); }
-<YYINITIAL> "¡"                  { return symbol(sym.END_COMMENT); }
+// Treat '|' as start of end-of-line comment: consume rest of line and ignore
+<YYINITIAL> {PipeComment} { /* ignore comments that start with '|' until EOL */ }
+// Block comments start with '¡' and end with '!'. Emit tokens so the parser can consume them.
+<YYINITIAL> "¡"                  { yybegin(COMMENT_BLOCK); return symbol(sym.INIT_COMMENT); }
+<COMMENT_BLOCK> "!"              { yybegin(YYINITIAL); return symbol(sym.END_COMMENT); }
+<COMMENT_BLOCK> [^!\r\n]+        { return symbol(sym.COMMENT, yytext()); }
+<COMMENT_BLOCK> {LineTerminator}+ { return symbol(sym.COMMENT, yytext()); }
+<COMMENT_BLOCK> [ \t\f]+         { return symbol(sym.COMMENT, yytext()); }
+<COMMENT_BLOCK> <<EOF>>           { throw new RuntimeException("Comentario de bloque sin cierre"); }
 
 <YYINITIAL> "programa"                  { /* keyword 'programa' - ignored by parser grammar */ }
-<YYINITIAL> "principal"                  { return symbol(sym.MAIN); }
+// <YYINITIAL> "principal"                  { return symbol(sym.MAIN); }
 
-<YYINITIAL> "func"               { return symbol(sym.FUNC); }
 <YYINITIAL> "param"              { return symbol(sym.PARAM); }
 <YYINITIAL> ","                  { return symbol(sym.COMA); }
 <YYINITIAL> "let"                  { return symbol(sym.LET); }
@@ -167,7 +177,7 @@ true = "true"
   {Identifier}                   { return symbol(sym.IDENTIFIER, yytext()); }
 
   /* literals */
-  <YYINITIAL> {DecIntegerLiteral}  { return symbol(sym.INT_LITERAL); }
+  <YYINITIAL> {DecIntegerLiteral}  { return symbol(sym.INT_LITERAL, yytext()); }
   \"                             { string.setLength(0); yybegin(STRING); }
   \'                             { string.setLength(0); yybegin(CHARSTR); }
 
@@ -208,6 +218,8 @@ true = "true"
   \\\'                           { string.append('\''); }
   \\                             { string.append('\\'); }
 }
+/* Manejo de whitespace y caracteres especiales */
+[ \t\n\r]+                     { /* ignore whitespace */ }
 
 /* Manejo de errores */
 [^] { throw new RuntimeException("Carácter no válido: " + yytext()); }

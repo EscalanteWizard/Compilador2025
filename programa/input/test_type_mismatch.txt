@@ -1,0 +1,8 @@
+let int x$
+let float y$
+
+int main є э ¿
+    let int result$
+    result = x + y$
+    return 1$
+?

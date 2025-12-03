@@ -1,0 +1,269 @@
+﻿Token: 37 let (LET) at 2:2
+Token: 34 string (STRING) at 2:6
+Token: 2 _s1_ (IDENTIFIER) at 2:13
+Token: 66 $ (DOLLAR) at 2:17
+Token: 30 int (INT) at 3:2
+Token: 64 principal (MAIN) at 3:6
+Token: 61 ? (UKRA) at 3:16
+Token: 30 int (INT) at 3:18
+Token: 2 arg (IDENTIFIER) at 3:22
+Token: 62 ? (RUSS) at 3:26
+Token: 12 ┐ (INIT_BLOCK) at 3:29
+Token: 2 _arr_ (IDENTIFIER) at 4:2
+Token: 59 [ (SQUARES) at 4:7
+Token: 11 67 (INT_LITERAL) at 4:8
+Token: 18 , (COMA) at 4:10
+Token: 11 2 (INT_LITERAL) at 4:11
+Token: 60 ] (SQUAREC) at 4:12
+Token: 20 = (EQ) at 4:14
+Token: 4 - (MENOS) at 4:16
+flotante
+Token: 31 0.01 (FLOAT) at 4:17
+Token: 66 $ (DOLLAR) at 4:21
+Token: 37 let (LET) at 5:2
+Token: 33 bool (BOOL) at 5:6
+Token: 2 _b1_ (IDENTIFIER) at 5:11
+Token: 66 $ (DOLLAR) at 5:15
+Token: 37 let (LET) at 6:2
+Token: 34 string (STRING) at 6:6
+Token: 2 _s1_ (IDENTIFIER) at 6:13
+Token: 66 $ (DOLLAR) at 6:17
+Token: 55 input (INPUT) at 7:2
+Token: 61 ? (UKRA) at 7:8
+Token: 2 _s1_ (IDENTIFIER) at 7:10
+Token: 62 ? (RUSS) at 7:15
+Token: 66 $ (DOLLAR) at 7:17
+Token: 56 output (OUTPUT) at 8:2
+Token: 61 ? (UKRA) at 8:9
+Token: 2 _b1_ (IDENTIFIER) at 8:11
+Token: 62 ? (RUSS) at 8:16
+Token: 66 $ (DOLLAR) at 8:18
+Token: 56 output (OUTPUT) at 9:2
+Token: 61 ? (UKRA) at 9:9
+true
+Token: 39 true (TRUE) at 9:11
+Token: 62 ? (RUSS) at 9:16
+Token: 66 $ (DOLLAR) at 9:18
+Token: 56 output (OUTPUT) at 10:2
+Token: 61 ? (UKRA) at 10:9
+Token: 4 - (MENOS) at 10:11
+flotante
+Token: 31 6.7 (FLOAT) at 10:12
+Token: 62 ? (RUSS) at 10:16
+Token: 66 $ (DOLLAR) at 10:18
+Token: 54 return (RETURN) at 11:2
+Token: 66 $ (DOLLAR) at 11:8
+Token: 54 return (RETURN) at 12:2
+Token: 11 1 (INT_LITERAL) at 12:9
+Token: 3 + (MAS) at 12:10
+Token: 2 _f_ (IDENTIFIER) at 12:11
+Token: 61 ? (UKRA) at 12:15
+Token: 62 ? (RUSS) at 12:18
+Token: 66 $ (DOLLAR) at 12:20
+Token: 13 ? (END_BLOCK) at 13:2
+Token: 31 float (FLOAT) at 15:1
+Token: 2 _mi_ (IDENTIFIER) at 15:7
+Token: 61 ? (UKRA) at 15:13
+Token: 30 int (INT) at 15:15
+Token: 2 _dif_ (IDENTIFIER) at 15:19
+Token: 18 , (COMA) at 15:24
+Token: 32 char (CHAR) at 15:26
+Token: 2 _otra_ (IDENTIFIER) at 15:31
+Token: 62 ? (RUSS) at 15:38
+Token: 12 ┐ (INIT_BLOCK) at 15:41
+Token: 37 let (LET) at 16:2
+Token: 30 int (INT) at 16:6
+Token: 2 _otra_ (IDENTIFIER) at 16:10
+Token: 66 $ (DOLLAR) at 16:16
+Token: 37 let (LET) at 17:2
+Token: 34 string (STRING) at 17:6
+Token: 2 _str_ (IDENTIFIER) at 17:13
+Token: 20 = (EQ) at 17:18
+Token: 19 Hola $~&|?$& ?  mundo (STRING_LITERAL) at 17:41
+Token: 66 $ (DOLLAR) at 17:42
+Token: 42 for (FOR) at 18:2
+Token: 2 _i_ (IDENTIFIER) at 18:7
+Token: 20 = (EQ) at 18:10
+Token: 11 20 (INT_LITERAL) at 18:11
+Token: 49 step (STEP) at 18:14
+Token: 4 - (MENOS) at 18:19
+Token: 11 2 (INT_LITERAL) at 18:20
+Token: 51 downto (DOWNTO) at 18:22
+Token: 11 0 (INT_LITERAL) at 18:29
+Token: 52 do (DO) at 18:31
+Token: 12 ┐ (INIT_BLOCK) at 19:3
+Token: 46 loop (LOOP) at 20:3
+Token: 2 _var_2 (IDENTIFIER) at 21:6
+Token: 20 = (EQ) at 21:13
+Token: 2 _var_2 (IDENTIFIER) at 21:15
+Token: 4 - (MENOS) at 21:22
+Token: 11 1 (INT_LITERAL) at 21:24
+Token: 66 $ (DOLLAR) at 21:25
+Token: 2 _var_ (IDENTIFIER) at 22:4
+Token: 20 = (EQ) at 22:10
+Token: 2 _var_ (IDENTIFIER) at 22:12
+Token: 4 - (MENOS) at 22:18
+Token: 11 1 (INT_LITERAL) at 22:20
+Token: 66 $ (DOLLAR) at 22:21
+Token: 47 exit (EXIT) at 23:3
+Token: 48 when (WHEN) at 23:8
+Token: 61 ? (UKRA) at 23:13
+Token: 2 _var2_ (IDENTIFIER) at 23:15
+Token: 21 > (GREATHER) at 23:21
+flotante
+Token: 31 12.2 (FLOAT) at 23:22
+Token: 27 @ (AND) at 23:27
+Token: 29 ? (NEGA) at 23:29
+Token: 61 ? (UKRA) at 23:31
+Token: 11 12 (INT_LITERAL) at 23:32
+Token: 21 > (GREATHER) at 23:34
+Token: 61 ? (UKRA) at 23:36
+Token: 11 34 (INT_LITERAL) at 23:38
+Token: 3 + (MAS) at 23:40
+Token: 11 35 (INT_LITERAL) at 23:41
+Token: 62 ? (RUSS) at 23:44
+Token: 62 ? (RUSS) at 23:45
+Token: 62 ? (RUSS) at 23:48
+Token: 66 $ (DOLLAR) at 23:50
+Token: 45 end (END) at 24:3
+Token: 46 loop (LOOP) at 24:7
+Token: 66 $ (DOLLAR) at 24:11
+Token: 41 else (ELSE) at 25:3
+Token: 63 -> (ARROW) at 25:8
+Token: 12 ┐ (INIT_BLOCK) at 25:12
+Token: 55 input (INPUT) at 26:4
+Token: 61 ? (UKRA) at 26:10
+Token: 2 _var2_ (IDENTIFIER) at 26:12
+Token: 62 ? (RUSS) at 26:19
+Token: 66 $ (DOLLAR) at 26:21
+Token: 53 break (BREAK) at 27:4
+Token: 66 $ (DOLLAR) at 27:9
+Token: 13 ? (END_BLOCK) at 28:4
+Token: 43 decide (DECIDE) at 30:3
+Token: 44 of (OF) at 30:12
+Token: 61 ? (UKRA) at 31:3
+Token: 2 _var_ (IDENTIFIER) at 31:5
+Token: 25 == (COMPARA) at 31:10
+Token: 11 0 (INT_LITERAL) at 31:12
+Token: 62 ? (RUSS) at 31:14
+Token: 63 -> (ARROW) at 31:17
+Token: 12 ┐ (INIT_BLOCK) at 32:4
+Token: 56 output (OUTPUT) at 33:4
+Token: 61 ? (UKRA) at 33:11
+Token: 19 entra al if (STRING_LITERAL) at 33:25
+Token: 62 ? (RUSS) at 33:27
+Token: 66 $ (DOLLAR) at 33:29
+Token: 13 ? (END_BLOCK) at 34:4
+Token: 45 end (END) at 35:3
+Token: 43 decide (DECIDE) at 35:7
+Token: 66 $ (DOLLAR) at 35:13
+Token: 43 decide (DECIDE) at 36:3
+Token: 44 of (OF) at 36:12
+true
+Token: 39 true (TRUE) at 37:3
+Token: 63 -> (ARROW) at 37:8
+Token: 12 ┐ (INIT_BLOCK) at 38:4
+Token: 56 output (OUTPUT) at 39:4
+Token: 61 ? (UKRA) at 39:11
+Token: 2 _var_ (IDENTIFIER) at 39:13
+Token: 62 ? (RUSS) at 39:19
+Token: 66 $ (DOLLAR) at 39:21
+Token: 13 ? (END_BLOCK) at 40:4
+Token: 41 else (ELSE) at 41:3
+Token: 63 -> (ARROW) at 41:8
+Token: 12 ┐ (INIT_BLOCK) at 42:4
+Token: 43 decide (DECIDE) at 43:4
+Token: 44 of (OF) at 43:13
+Token: 2 _otra_ (IDENTIFIER) at 44:5
+Token: 25 == (COMPARA) at 44:12
+Token: 11 1 (INT_LITERAL) at 44:15
+Token: 63 -> (ARROW) at 44:17
+Token: 12 ┐ (INIT_BLOCK) at 44:20
+Token: 56 output (OUTPUT) at 45:6
+Token: 61 ? (UKRA) at 45:13
+Token: 19 !| (STRING_LITERAL) at 45:18
+Token: 62 ? (RUSS) at 45:20
+Token: 66 $ (DOLLAR) at 45:22
+Token: 13 ? (END_BLOCK) at 45:24
+Token: 41 else (ELSE) at 46:5
+Token: 63 -> (ARROW) at 46:10
+Token: 12 ┐ (INIT_BLOCK) at 46:13
+Token: 2 _otra_ (IDENTIFIER) at 47:6
+Token: 20 = (EQ) at 47:13
+Token: 4 - (MENOS) at 47:15
+flotante
+Token: 31 10.5 (FLOAT) at 47:16
+Token: 7 * (MULTI) at 47:21
+Token: 4 - (MENOS) at 47:23
+flotante
+Token: 31 1.9 (FLOAT) at 47:24
+Token: 66 $ (DOLLAR) at 47:27
+Token: 13 ? (END_BLOCK) at 47:29
+Token: 2 _otra_ (IDENTIFIER) at 48:5
+Token: 25 == (COMPARA) at 48:12
+Token: 11 2 (INT_LITERAL) at 48:15
+Token: 63 -> (ARROW) at 48:17
+Token: 12 ┐ (INIT_BLOCK) at 48:20
+Token: 2 _otra_ (IDENTIFIER) at 49:6
+Token: 20 = (EQ) at 49:13
+Token: 11 10 (INT_LITERAL) at 49:15
+Token: 66 $ (DOLLAR) at 49:17
+Token: 53 break (BREAK) at 50:6
+Token: 66 $ (DOLLAR) at 50:11
+Token: 13 ? (END_BLOCK) at 50:13
+Token: 45 end (END) at 51:4
+Token: 43 decide (DECIDE) at 51:9
+Token: 66 $ (DOLLAR) at 51:17
+Token: 43 decide (DECIDE) at 53:4
+Token: 44 of (OF) at 53:13
+Token: 2 _otra2_ (IDENTIFIER) at 54:5
+Token: 25 == (COMPARA) at 54:13
+Token: 11 10 (INT_LITERAL) at 54:16
+Token: 63 -> (ARROW) at 54:19
+Token: 12 ┐ (INIT_BLOCK) at 54:22
+Token: 56 output (OUTPUT) at 55:6
+Token: 61 ? (UKRA) at 55:13
+Token: 19 un case (STRING_LITERAL) at 55:23
+Token: 62 ? (RUSS) at 55:25
+Token: 66 $ (DOLLAR) at 55:27
+Token: 13 ? (END_BLOCK) at 55:29
+Token: 45 end (END) at 56:4
+Token: 43 decide (DECIDE) at 56:9
+Token: 66 $ (DOLLAR) at 56:17
+Token: 13 ? (END_BLOCK) at 57:4
+Token: 45 end (END) at 58:4
+Token: 43 decide (DECIDE) at 58:9
+Token: 66 $ (DOLLAR) at 58:17
+Token: 13 ? (END_BLOCK) at 59:3
+Token: 54 return (RETURN) at 60:2
+Token: 11 1 (INT_LITERAL) at 60:9
+Token: 66 $ (DOLLAR) at 60:10
+Token: 13 ? (END_BLOCK) at 61:3
+Token: 33 bool (BOOL) at 63:2
+Token: 2 _miOtraFun_ (IDENTIFIER) at 63:7
+Token: 61 ? (UKRA) at 63:20
+Token: 62 ? (RUSS) at 63:23
+Token: 12 ┐ (INIT_BLOCK) at 63:27
+Token: 54 return (RETURN) at 64:2
+Token: 4 - (MENOS) at 64:9
+flotante
+Token: 31 5.6 (FLOAT) at 64:10
+Token: 66 $ (DOLLAR) at 64:13
+Token: 13 ? (END_BLOCK) at 65:3
+Cantidad de lexemas encontrados: 244
+El archivo se ha escrito correctamente en: D:\Compilador2025\programa\output\TOKENS.txt
+java : Exception during parse: Cannot invoke "String.equals(Object)" because "this.currentHash" is null
+En línea: 1 Carácter: 1
++ java -cp "programa\lib\*;programa\src" Proye1_compi 2>&1 | Out-File - ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Exception durin...ntHash" is null:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+TABLA DE SIMBOLOS (resumen)
+Scope: SCOPE GLOBAL  (0 entradas)
+Tablas de simbolos exportadas a: D:\Compilador2025\programa\output
+
+C╙DIGO DE TRES DIRECCIONES (3D)
+Advertencia: No se genero codigo 3D
+Codigo 3D exportado a: D:\Compilador2025\programa\output\Codigo3D.txt

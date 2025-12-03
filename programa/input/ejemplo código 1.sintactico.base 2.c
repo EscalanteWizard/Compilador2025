@@ -1,5 +1,5 @@
  
-string _s1_$ | sintactico
+ string _s1_$ | sintactico
 let bool _b1_$
 
  float func1 є char x22,char x22 э  ¿ |semantico borrar parametro
@@ -12,7 +12,7 @@ let bool _b1_$
 	let int numS = numero - 1 * numero + numero $
 	output є numS э $
 
-	let float floatNum = -0.01$ |error sintactico
+	let float=-0.01$ |error sintactico
 	let char _x22_='a'$ ¡semantico x22!
 	let char _miChar_='!'  |error sintactico
 	let char _miChar2_='!!'$ |sintactico-semantico
@@ -36,15 +36,15 @@ let bool _b1_$
 		let string str2="sdff"$
 	 ?
 	end decide$ 
-	for _i_=0 step 1 to 10 do  ¿ output є _i_ э $ ?  |semantico i y j puede dar error sintactico
+	for   _i_=0 step 1 to 10 do  ¿ output є _i_ э $ ?  |semantico i y j puede dar error sintactico
 	output є "Hola mundo" э $
 	input є _x22_ э $
 	return -5.6$|cambio en retorno genera semantico
  ?  
 
  bool _func2_  є bool _b1_, int _i1_ э   ¿ 
-	let int =1 $ |sintactico
-	return $ |generar error con -5.6 y con i1
+	let int $ |sintactico
+	return$ |generar error con -5.6 y con i1
   ?  
 
 string _func3_  є  э   ¿  |semantico string
@@ -61,13 +61,13 @@ Comentario 1
 	let string str1="Mi string 1"$
 	let float fl1$
 	let float fl1=56.6$ |semantico fl1
-	let int in1=fl1--- -14in1 +++ 7 / 15$ |semantico fl1, in1, semantico division
-	let float fl2=3.7 ^ fl1+ є 45.6э $ |semantico literal 76
+	let int in1=fl1--- -14%in1 +++ 7 / 15$ |semantico fl1, in1, semantico division
+	let float fl2=3.7 ^ fl1+ є 45.6 % 76 э $ |semantico literal 76
 	
 |comentario 2
 	arr = 10 - arr[67+i] * func1  є hola, true, "hola mundo", 4.5, 'a' э $ |semantico func1, retorno func1
-	fl1 = 4.5^-0.005$ |semantico miChar
-	miFunc є'a' э $ |semantico miFunc, hola
+	fl1 = 4.5%miChar^-0.005$ |semantico miChar
+	miFunc є miFunc є  э ,'a' э $ |semantico miFunc, hola
 	let bool bl0 = 6.7 != 8.9$ |ok
 	bl0 = true != false$ |ok
 	let bool bl1 = in1 >= fl1 ~ false @ Σ є func2 є 3,in1 э  > 56 э $ |semantico in1 >= fl1, func2

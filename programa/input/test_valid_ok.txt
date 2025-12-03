@@ -1,0 +1,16 @@
+int main ¿
+	let int x$
+	let float y$
+	
+	x = 10$
+	y = 3.14$
+	
+	x = x + 5$
+	x = x * 2$
+	x = x / 2$
+	
+	output є x э $
+	output є y э $
+	
+	return 0$
+?

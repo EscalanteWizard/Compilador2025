@@ -7,69 +7,69 @@
 public class sym {
   /* terminals */
   public static final int END_BLOCK = 13;
-  public static final int STRING_LITERAL = 20;
-  public static final int CHAR = 33;
-  public static final int OUTPUT = 56;
-  public static final int END_LOOP = 47;
+  public static final int WHEN = 49;
+  public static final int STRING_LITERAL = 19;
+  public static final int CHAR = 32;
+  public static final int OUTPUT = 57;
   public static final int COMMENT = 16;
-  public static final int INPUT = 55;
-  public static final int NEGA = 30;
-  public static final int LOWER = 23;
-  public static final int INT = 31;
-  public static final int ARRAY = 36;
+  public static final int INPUT = 56;
+  public static final int NEGA = 29;
+  public static final int LOWER = 22;
+  public static final int INT = 30;
+  public static final int ARRAY = 35;
   public static final int FOR = 43;
-  public static final int LESS = 25;
-  public static final int PARAM = 18;
-  public static final int PARENTS = 57;
+  public static final int LESS = 24;
+  public static final int PARAM = 17;
+  public static final int PARENTS = 58;
+  public static final int PRINCIPAL = 39;
   public static final int CHARSTR = 65;
-  public static final int AND = 28;
-  public static final int GREATHER = 22;
-  public static final int OR = 29;
-  public static final int BOOL = 34;
+  public static final int AND = 27;
+  public static final int DECIDE = 44;
+  public static final int GREATHER = 21;
+  public static final int OR = 28;
+  public static final int BOOL = 33;
   public static final int DIV = 8;
-  public static final int DECIDE_OF = 44;
+  public static final int EXIT = 48;
   public static final int LOOP = 46;
-  public static final int MAIN = 64;
-  public static final int PARENTC = 58;
-  public static final int END_DECIDE = 45;
-  public static final int DOT = 39;
+  public static final int PARENTC = 59;
+  public static final int DOT = 38;
+  public static final int OF = 45;
   public static final int EOF = 0;
-  public static final int RETURN = 54;
+  public static final int RETURN = 55;
   public static final int TRUE = 40;
   public static final int error = 1;
-  public static final int SQUARES = 59;
-  public static final int COMA = 19;
+  public static final int SQUARES = 60;
+  public static final int COMA = 18;
   public static final int MENOS = 4;
-  public static final int GLOBAL = 37;
-  public static final int BREAK = 53;
-  public static final int EQ = 21;
+  public static final int GLOBAL = 36;
+  public static final int BREAK = 54;
+  public static final int EQ = 20;
   public static final int DMENOS = 5;
   public static final int INIT_BLOCK = 12;
   public static final int POTENCIA = 10;
-  public static final int ARROW = 63;
-  public static final int SQUAREC = 60;
+  public static final int ARROW = 64;
+  public static final int SQUAREC = 61;
   public static final int ELSE = 42;
-  public static final int COMPARA = 26;
-  public static final int FUNC = 17;
-  public static final int TO = 50;
-  public static final int UKRA = 61;
+  public static final int COMPARA = 25;
+  public static final int TO = 51;
+  public static final int UKRA = 62;
   public static final int DOLLAR = 66;
-  public static final int LET = 38;
-  public static final int FLOAT = 32;
+  public static final int LET = 37;
+  public static final int FLOAT = 31;
+  public static final int END = 47;
   public static final int MULTI = 7;
-  public static final int EXIT_WHEN = 48;
-  public static final int RUSS = 62;
-  public static final int STRING = 35;
+  public static final int RUSS = 63;
+  public static final int STRING = 34;
   public static final int END_COMMENT = 15;
-  public static final int DIFF = 27;
-  public static final int DOWNTO = 51;
+  public static final int DIFF = 26;
+  public static final int DOWNTO = 52;
   public static final int FALSE = 41;
   public static final int INIT_COMMENT = 14;
   public static final int DMAS = 6;
   public static final int FLOAT_DIV = 9;
-  public static final int DO = 52;
-  public static final int MORE = 24;
-  public static final int STEP = 49;
+  public static final int DO = 53;
+  public static final int MORE = 23;
+  public static final int STEP = 50;
   public static final int INT_LITERAL = 11;
   public static final int MAS = 3;
   public static final int IDENTIFIER = 2;
@@ -91,7 +91,6 @@ public class sym {
   "INIT_COMMENT",
   "END_COMMENT",
   "COMMENT",
-  "FUNC",
   "PARAM",
   "COMA",
   "STRING_LITERAL",
@@ -114,15 +113,17 @@ public class sym {
   "GLOBAL",
   "LET",
   "DOT",
+  "PRINCIPAL",
   "TRUE",
   "FALSE",
   "ELSE",
   "FOR",
-  "DECIDE_OF",
-  "END_DECIDE",
+  "DECIDE",
+  "OF",
   "LOOP",
-  "END_LOOP",
-  "EXIT_WHEN",
+  "END",
+  "EXIT",
+  "WHEN",
   "STEP",
   "TO",
   "DOWNTO",
@@ -138,7 +139,6 @@ public class sym {
   "UKRA",
   "RUSS",
   "ARROW",
-  "MAIN",
   "CHARSTR",
   "DOLLAR"
   };

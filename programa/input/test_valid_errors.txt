@@ -1,0 +1,13 @@
+int main ¿
+	let int x$
+	let float y$
+	
+	x = y + 5$
+	y = x + 3.14$
+	x = 10 + 3.14$
+	
+	output є undefined_var э $
+	output є x э $
+	
+	return 0$
+?

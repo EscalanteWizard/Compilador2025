@@ -1,0 +1,10 @@
+int main ¿
+	int array datos[3]$
+	let int idx$
+	idx = 0$
+	datos[idx] = 7$
+	idx = idx + 1$
+	datos[idx] = 5$
+	output є datos[idx] э $
+	return idx$
+?

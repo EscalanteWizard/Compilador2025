@@ -1,15 +1,92 @@
-Token: 38 let
-Token: 31 int
-Token: 2 x
-Token: 66 $
-Token: 37 global
-Token: 38 let
-Token: 31 int
-Token: 2 x
-Token: 21 =
-Token: 11 1
-Token: 66 $
-Token: 38 let
-Token: 33 char
-Token: 2 i
-Token: 66 $
+Token: 37 let (LET) at 1:1
+Token: 30 int (INT) at 1:5
+Token: 2 gi (IDENTIFIER) at 1:9
+Token: 66 $ (DOLLAR) at 1:11
+Token: 37 let (LET) at 2:1
+Token: 31 float (FLOAT) at 2:5
+Token: 2 gf (IDENTIFIER) at 2:11
+Token: 66 $ (DOLLAR) at 2:13
+Token: 37 let (LET) at 3:1
+Token: 33 bool (BOOL) at 3:5
+Token: 2 gb (IDENTIFIER) at 3:10
+Token: 66 $ (DOLLAR) at 3:12
+Token: 39 principal (PRINCIPAL) at 5:1
+Token: 12 ¿ (INIT_BLOCK) at 5:11
+Token: 37 let (LET) at 6:5
+Token: 30 int (INT) at 6:9
+Token: 2 suma (IDENTIFIER) at 6:13
+Token: 66 $ (DOLLAR) at 6:17
+Token: 2 suma (IDENTIFIER) at 7:5
+Token: 20 = (EQ) at 7:10
+Token: 2 gi (IDENTIFIER) at 7:12
+Token: 3 + (MAS) at 7:15
+Token: 2 gi (IDENTIFIER) at 7:17
+Token: 66 $ (DOLLAR) at 7:19
+Token: 37 let (LET) at 8:5
+Token: 31 float (FLOAT) at 8:9
+Token: 2 mix (IDENTIFIER) at 8:15
+Token: 66 $ (DOLLAR) at 8:18
+Token: 2 mix (IDENTIFIER) at 9:5
+Token: 20 = (EQ) at 9:9
+Token: 2 gf (IDENTIFIER) at 9:11
+Token: 3 + (MAS) at 9:14
+Token: 2 gf (IDENTIFIER) at 9:16
+Token: 66 $ (DOLLAR) at 9:18
+Token: 37 let (LET) at 10:5
+Token: 33 bool (BOOL) at 10:9
+Token: 2 conj (IDENTIFIER) at 10:14
+Token: 66 $ (DOLLAR) at 10:18
+Token: 2 conj (IDENTIFIER) at 11:5
+Token: 20 = (EQ) at 11:10
+Token: 2 gb (IDENTIFIER) at 11:12
+Token: 27 @ (AND) at 11:15
+Token: 40 true (TRUE) at 11:17
+Token: 66 $ (DOLLAR) at 11:21
+Token: 2 mix (IDENTIFIER) at 12:5
+Token: 20 = (EQ) at 12:9
+Token: 2 mix (IDENTIFIER) at 12:11
+Token: 3 + (MAS) at 12:15
+Token: 2 gi (IDENTIFIER) at 12:17
+Token: 66 $ (DOLLAR) at 12:19
+Token: 2 conj (IDENTIFIER) at 13:5
+Token: 20 = (EQ) at 13:10
+Token: 2 conj (IDENTIFIER) at 13:12
+Token: 27 @ (AND) at 13:17
+Token: 2 suma (IDENTIFIER) at 13:19
+Token: 66 $ (DOLLAR) at 13:23
+Token: 30 int (INT) at 14:5
+Token: 35 array (ARRAY) at 14:9
+Token: 2 arrA (IDENTIFIER) at 14:15
+Token: 60 [ (SQUARES) at 14:19
+Token: 11 3 (INT_LITERAL) at 14:20
+Token: 61 ] (SQUAREC) at 14:21
+Token: 66 $ (DOLLAR) at 14:22
+Token: 2 arrA (IDENTIFIER) at 15:5
+Token: 20 = (EQ) at 15:10
+Token: 12 ¿ (INIT_BLOCK) at 15:12
+Token: 11 1 (INT_LITERAL) at 15:13
+Token: 18 , (COMA) at 15:14
+Token: 11 2 (INT_LITERAL) at 15:15
+Token: 18 , (COMA) at 15:16
+Token: 11 3 (INT_LITERAL) at 15:17
+Token: 13 ? (END_BLOCK) at 15:18
+Token: 30 int (INT) at 16:5
+Token: 35 array (ARRAY) at 16:9
+Token: 2 arrBad (IDENTIFIER) at 16:15
+Token: 60 [ (SQUARES) at 16:21
+Token: 11 2 (INT_LITERAL) at 16:22
+Token: 61 ] (SQUAREC) at 16:23
+Token: 66 $ (DOLLAR) at 16:24
+Token: 2 arrBad (IDENTIFIER) at 17:5
+Token: 20 = (EQ) at 17:12
+Token: 12 ¿ (INIT_BLOCK) at 17:14
+Token: 11 1 (INT_LITERAL) at 17:15
+Token: 18 , (COMA) at 17:16
+Token: 40 true (TRUE) at 17:17
+Token: 18 , (COMA) at 17:21
+Token: 11 3 (INT_LITERAL) at 17:22
+Token: 13 ? (END_BLOCK) at 17:23
+Token: 55 return (RETURN) at 18:5
+Token: 2 suma (IDENTIFIER) at 18:12
+Token: 66 $ (DOLLAR) at 18:16
+Token: 13 ? (END_BLOCK) at 19:1
