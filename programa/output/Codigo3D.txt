@@ -1,18 +1,154 @@
-declare gi:INT
-declare gf:FLOAT
-declare gb:BOOL
-begin_main
-declare suma:INT
-t1 = gi + gi
-suma = t1
-declare mix:FLOAT
-f2 = gf + gf
-mix = f2
-declare conj:BOOL
-t3 = gb && true
-conj = t3
-declare_arr arrA[3] INT
-arr_pad_zero arrA, 0, 3
-declare_arr arrBad[2] INT
-arr_pad_zero arrBad, 0, 2
-end_main
+#!CI_VERSION 1.1
+#!CI_TARGET MIPS
+#!CI_FORMAT structured
+declare _s1_:STRING
+declare _b1_:BOOL
+FUNC_BEGIN func1 RET FLOAT
+INICIO_funcion_func1:
+Parametros_funcion_func1: [CHAR_x22]
+declare numero:INT
+declare letra:CHAR
+numero = 10
+letra = a
+print numero
+print letra
+declare numS2:INT
+numS2 = 1
+t1 = 1 * numero
+t2 = numero - t1
+t3 = t2 + numero
+declare numS:INT
+numS = t3
+print numS
+f4 = -0.01
+declare floatNum:FLOAT
+floatNum = f4
+declare _x22_:CHAR
+_x22_ = a
+declare _miChar_:CHAR
+_miChar_ = !
+declare _miChar2_:CHAR
+_miChar2_ = !!
+t5 = -1
+declare _x30_:INT
+_x30_ = t5
+declare _x40_:BOOL
+_x40_ = false
+declare var:FLOAT
+var = 1.2
+declare x24:FLOAT
+x24 = 2.1
+declare_arr _x50_[1000] CHAR
+astore _x50_, 0, 4
+astore _x50_, 1, 5
+arr_pad_zero _x50_, 2, 1000
+declare _x51_:STRING
+_x51_ = Hola a todos los que est[a] haciendo un compilador nuevo¿n
+decide_begin_1:
+t6 = 6 <= 45
+t7 = var > 5.6
+t8 = t6 && t7
+if t8 goto case_hit_3
+goto case_next_4
+case_hit_3:
+declare y:INT
+x22 = b
+declare ch33:CHAR
+ch33 = a
+goto decide_end_2
+case_next_4:
+t9 = x24 >= var
+t10 = var > 5.6
+t11 = t9 && t10
+if t11 goto case_hit_5
+goto case_next_6
+case_hit_5:
+declare algo:INT
+x22 = z
+goto decide_end_2
+case_next_6:
+// rama else
+declare str2:STRING
+str2 = sdff
+goto decide_end_2
+decide_end_2:
+declare _i_:INT
+_i_ = 1
+_i_ = 0
+for_cond_7:
+if _i_ > 10 goto for_end_9
+for_body_8:
+print _i_
+_i_ = _i_ + 1
+goto for_cond_7
+for_end_9:
+print Hola mundo
+read _x22_
+return var
+FIN_funcion_func1:
+FUNC_END func1
+FUNC_BEGIN _func2_ RET BOOL
+INICIO_funcion__func2_:
+Parametros_funcion__func2_: [BOOL__b1_, INT__i1_]
+declare anotherNum:INT
+anotherNum = 1
+return true
+FIN_funcion__func2_:
+FUNC_END _func2_
+FUNC_BEGIN _func3_ RET STRING
+INICIO_funcion__func3_:
+declare _b1_:STRING
+return _b1_
+FIN_funcion__func3_:
+FUNC_END _func3_
+FUNC_BEGIN notRincipal RET VOID
+INICIO_funcion_notRincipal:
+declare miChar:CHAR
+miChar = !
+declare miChar2:CHAR
+miChar2 = !!
+declare str1:STRING
+str1 = Mi string 1
+declare fl1:INT
+fl1 = 2
+declare fl6:FLOAT
+fl6 = 56.6
+declare fl4:INT
+fl4 = 3
+declare in1:INT
+in1 = 2
+t12 = 14 * in1
+t13 = fl4 - t12
+t14 = 7 / 15
+t15 = t13 + t14
+in1 = t15
+t16 = 3 ^ fl1
+t17 = t16 + 45
+declare fl2:INT
+fl2 = t17
+declare i:INT
+i = 3
+declare_arr arreglo[1000] INT
+astore arreglo, 0, 4
+astore arreglo, 1, 5
+arr_pad_zero arreglo, 2, 1000
+t18 = 4 ^ 5
+fl1 = t18
+t19 = 6.7 != 8.9
+declare bl:BOOL
+bl = t19
+t20 = true != false
+declare bl0:BOOL
+bl0 = t20
+t21 = in1 >= fl1
+t22 = t21 || false
+param false
+param in1
+t23 = call _func2_, 2
+t24 = ! t23
+t25 = t22 && t24
+declare bl1:BOOL
+bl1 = t25
+return
+FIN_funcion_notRincipal:
+FUNC_END notRincipal

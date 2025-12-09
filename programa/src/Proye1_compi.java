@@ -45,9 +45,15 @@ public class Proye1_compi {
         // Análisis sintáctico
         test2(inputPath);
 
-        // Generar archivo destino MIPS a partir del Codigo3D (descomente para habilitar la traducción)
-        // Codigo3DMipsGenerator mipsGenerator = new Codigo3DMipsGenerator();
-        // mipsGenerator.generar(outputDir.resolve("Codigo3D.txt"), outputDir.resolve("destinoMIPS.asm"));
+        // Generar archivo destino MIPS a partir del Codigo3D
+        try {
+            Path codigo3DPath = outputDir.resolve("Codigo3D.txt");
+            Path destinoAsm = outputDir.resolve("destino.asm");
+            Path tablaSimbolosPath = outputDir.resolve("TablaSimbolos.txt");
+            GeneradorMIPS.generarDesdeArtefactos(codigo3DPath, destinoAsm, tablaSimbolosPath);
+        } catch (Exception e) {
+            System.err.println("No fue posible generar destino.asm: " + e.getMessage());
+        }
     }
 
     /**

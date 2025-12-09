@@ -111,6 +111,7 @@ true = "true"
 <YYINITIAL> "float"              { return symbol(sym.FLOAT); }
 <YYINITIAL> "bool"               { return symbol(sym.BOOL); }
 <YYINITIAL> "string"             { return symbol(sym.STRING); }
+<YYINITIAL> "void"               { return symbol(sym.VOID); }
 <YYINITIAL> "array"              { return symbol(sym.ARRAY); }
 
 <YYINITIAL> "decide"          { return symbol(sym.DECIDE); }
@@ -138,13 +139,13 @@ true = "true"
 <YYINITIAL> "є"                   { return symbol(sym.UKRA); }
 <YYINITIAL> "э"                   { return symbol(sym.RUSS); }
 
-<YYINITIAL> "="                 { return symbol(sym.EQ); }
-<YYINITIAL> ">"                  { return symbol(sym.GREATHER); }
-<YYINITIAL> "<"                  { return symbol(sym.LOWER); }
 <YYINITIAL> ">="                 { return symbol(sym.MORE); }
 <YYINITIAL> "<="                 { return symbol(sym.LESS); }
 <YYINITIAL> "=="                 { return symbol(sym.COMPARA); }
 <YYINITIAL> "!="                 { return symbol(sym.DIFF); }
+<YYINITIAL> ">"                  { return symbol(sym.GREATHER); }
+<YYINITIAL> "<"                  { return symbol(sym.LOWER); }
+<YYINITIAL> "="                 { return symbol(sym.EQ); }
 <YYINITIAL> "@"                 { return symbol(sym.AND); }
 <YYINITIAL> "~"                 { return symbol(sym.OR); }
 <YYINITIAL> "Σ"                  { return symbol(sym.NEGA); }

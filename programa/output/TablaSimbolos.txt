@@ -1,10 +1,44 @@
 Scope,Name,Type,Line,Column
-MAIN,func,INT,n/a,n/a
-MAIN,suma,INT,6,13
-MAIN,mix,FLOAT,8,15
-MAIN,conj,BOOL,10,14
-MAIN,arrA,ARR,14,15
-MAIN,arrBad,ARR,16,15
-SCOPE GLOBAL,gi,INT,1,9
-SCOPE GLOBAL,gf,FLOAT,2,11
-SCOPE GLOBAL,gb,BOOL,3,10
+_func2_,func,BOOL,n/a,n/a
+_func2_,_b1_,BOOL,47,23
+_func2_,_i1_,INT,47,33
+_func2_,anotherNum,INT,48,10
+notRincipal,func,VOID,n/a,n/a
+notRincipal,miChar,CHAR,61,11
+notRincipal,miChar2,CHAR,62,11
+notRincipal,str1,STRING,63,13
+notRincipal,fl1,INT,64,10
+notRincipal,fl6,FLOAT,65,12
+notRincipal,fl4,INT,66,10
+notRincipal,in1,INT,67,10
+notRincipal,fl2,INT,69,10
+notRincipal,i,INT,72,10
+notRincipal,arreglo,ARR,73,10
+notRincipal,bl,BOOL,75,11
+notRincipal,bl0,BOOL,76,11
+notRincipal,bl1,BOOL,77,11
+func1,func,FLOAT,n/a,n/a
+func1,x22,CHAR,5,21
+func1,numero,INT,7,10
+func1,letra,CHAR,7,27
+func1,numS2,INT,12,10
+func1,numS,INT,13,10
+func1,floatNum,FLOAT,16,12
+func1,_x22_,CHAR,17,11
+func1,_miChar_,CHAR,18,11
+func1,_miChar2_,CHAR,19,11
+func1,_x30_,INT,20,10
+func1,_x40_,BOOL,21,11
+func1,var,FLOAT,22,12
+func1,x24,FLOAT,23,12
+func1,_x50_,ARR,24,11
+func1,_x51_,STRING,25,13
+func1,y,INT,28,11
+func1,ch33,CHAR,30,12
+func1,algo,INT,33,11
+func1,str2,STRING,37,14
+func1,_i_,INT,40,10
+SCOPE GLOBAL,_s1_,STRING,2,12
+SCOPE GLOBAL,_b1_,BOOL,3,10
+_func3_,func,STRING,n/a,n/a
+_func3_,_b1_,STRING,53,13

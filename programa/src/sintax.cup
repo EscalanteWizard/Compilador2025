@@ -31,6 +31,7 @@ parser code {:
     int tempCounter = 0;
     int labelCounter = 0;
     boolean artifactsExported = false;
+    boolean ciHeaderEmitted = false;
 
     static class SymbolInfo {
         final String name;
@@ -58,12 +59,27 @@ parser code {:
     static class FunctionInfo {
         final String name;
         final String returnType;
+        final boolean returnsVoid;
         final ArrayList<SymbolInfo> params = new ArrayList<>();
         boolean hasReturn = false;
+        boolean paramsMetadataEmitted = false;
 
         FunctionInfo(String name, String returnType) {
             this.name = name;
             this.returnType = returnType;
+            this.returnsVoid = "VOID".equals(returnType);
+        }
+    }
+
+    static class ComparisonLink {
+        final String operator;
+        final ExprAttr right;
+        final Symbol token;
+
+        ComparisonLink(String operator, ExprAttr right, Symbol token) {
+            this.operator = operator;
+            this.right = right;
+            this.token = token;
         }
     }
 
@@ -420,6 +436,48 @@ parser code {:
     }
 
     /**
+     * Proposito: poblar un arreglo declarado con la lista de expresiones evaluadas durante la inicializacion.
+     * Entradas: simbolo del arreglo, lista de ExprAttr y el token para diagnosticos.
+     * Salidas: emite las instrucciones 'astore' necesarias y rellena con ceros cuando falten elementos.
+     * Restricciones: el arreglo debe haber sido declarado previamente y el tipo de cada elemento debe coincidir.
+     */
+    private void initializeArrayValues(SymbolInfo info, ArrayList<ExprAttr> values, Symbol token) {
+        if (info == null) {
+            return;
+        }
+        if (!info.isArray) {
+            reportSemanticError("El identificador '" + info.name + "' no es un arreglo", token);
+            return;
+        }
+        ensureHomogeneousElements(values, token);
+        if (values != null) {
+            if (info.arraySize > 0 && values.size() > info.arraySize) {
+                reportSemanticError("Demasiados elementos para '" + info.name + "'", token);
+            }
+            for (int i = 0; i < values.size(); i++) {
+                if (info.arraySize > 0 && i >= info.arraySize) {
+                    break;
+                }
+                ExprAttr expr = values.get(i);
+                if (expr == null || !expr.isValid()) {
+                    reportSemanticError("Elemento invalido en inicializacion de '" + info.name + "'", token);
+                    continue;
+                }
+                if (!info.type.equals(expr.type)) {
+                    reportSemanticError("Elemento no compatible para arreglo '" + info.name + "'", token);
+                    continue;
+                }
+                emit("astore " + info.name + ", " + i + ", " + expr.place);
+            }
+            if (info.arraySize > 0 && values.size() < info.arraySize) {
+                emit("arr_pad_zero " + info.name + ", " + values.size() + ", " + info.arraySize);
+            }
+        } else if (info.arraySize > 0) {
+            emit("arr_pad_zero " + info.name + ", 0, " + info.arraySize);
+        }
+    }
+
+    /**
      * Proposito: realizar las validaciones semanticas de una llamada e imprimir el codigo 3D correspondiente.
      * Entradas: nombre de la funcion, lista de argumentos evaluados y simbolo del sitio de llamada.
      * Salidas: ExprAttr que referencia el temporal de retorno; registra errores si algo no coincide.
@@ -518,6 +576,25 @@ parser code {:
     }
 
     /**
+     * Proposito: reflejar en el codigo 3D los parametros formales de la funcion actual.
+     * Entradas: ninguna (usa currentFunction para obtener la metadata vigente).
+     * Salidas: linea "Parametros_funcion_nombre: [TIPO_param,...]" si existen parametros.
+     * Restricciones: se emite una sola vez por funcion para evitar duplicados.
+     */
+    private void emitFunctionParamMetadata() {
+        FunctionInfo fun = currentFunction();
+        if (fun == null || fun.paramsMetadataEmitted || fun.params.isEmpty()) {
+            return;
+        }
+        ArrayList<String> descriptors = new ArrayList<>();
+        for (SymbolInfo param : fun.params) {
+            descriptors.add(param.type + "_" + param.name);
+        }
+        emit("Parametros_funcion_" + fun.name + ": [" + String.join(", ", descriptors) + "]");
+        fun.paramsMetadataEmitted = true;
+    }
+
+    /**
      * Proposito: encapsular literales o valores por defecto dentro de un ExprAttr.
      * Entradas: simbolo CUP (puede ser null), texto por defecto y tipo semantico.
      * Salidas: ExprAttr marcado como constante con el place/type correspondiente.
@@ -543,6 +620,42 @@ parser code {:
             return ExprAttr.invalid();
         }
         return expr;
+    }
+
+    private ExprAttr promoteIntToFloat(ExprAttr expr, Symbol token) {
+        if (expr == null || !expr.isValid()) {
+            return ExprAttr.invalid();
+        }
+        if (!"INT".equals(expr.type)) {
+            reportSemanticError("Solo se pueden promover INT a FLOAT", token);
+            return ExprAttr.invalid();
+        }
+        String temp = newTemp("FLOAT");
+        emit(temp + " = itof " + expr.place);
+        return new ExprAttr(temp, "FLOAT", false);
+    }
+
+    private ExprAttr[] alignNumericTypes(ExprAttr left, ExprAttr right, Symbol token) {
+        ExprAttr[] pair = new ExprAttr[]{left, right};
+        if (left == null || right == null) {
+            return pair;
+        }
+        if (!left.isNumeric() || !right.isNumeric()) {
+            return pair;
+        }
+        if (left.type.equals(right.type)) {
+            return pair;
+        }
+        if ("INT".equals(left.type) && "FLOAT".equals(right.type)) {
+            pair[0] = promoteIntToFloat(left, token);
+        } else if ("FLOAT".equals(left.type) && "INT".equals(right.type)) {
+            pair[1] = promoteIntToFloat(right, token);
+        } else {
+            reportSemanticError("Comparacion no soportada entre '" + left.type + "' y '" + right.type + "'", token);
+            pair[0] = ExprAttr.invalid();
+            pair[1] = ExprAttr.invalid();
+        }
+        return pair;
     }
 
     /**
@@ -601,23 +714,68 @@ parser code {:
             reportSemanticError("Comparacion invalida", token);
             return ExprAttr.invalid();
         }
+        boolean numericOperands = left.isNumeric() && right.isNumeric();
         if (!left.type.equals(right.type)) {
-            reportSemanticError("Comparacion requiere operandos del mismo tipo; se obtuvo '" + left.type + "' y '" + right.type + "'", token);
-            return ExprAttr.invalid();
+            if (numericOperands) {
+                ExprAttr[] aligned = alignNumericTypes(left, right, token);
+                left = aligned[0];
+                right = aligned[1];
+                if (left == null || right == null || !left.isValid() || !right.isValid()) {
+                    return ExprAttr.invalid();
+                }
+                numericOperands = left.isNumeric() && right.isNumeric();
+            } else {
+                reportSemanticError("Comparacion requiere operandos del mismo tipo; se obtuvo '" + left.type + "' y '" + right.type + "'", token);
+                return ExprAttr.invalid();
+            }
         }
         boolean equalityOp = "==".equals(op) || "!=".equals(op);
         if (equalityOp) {
-            if (!left.isNumeric() && !left.isBoolean() && !"CHAR".equals(left.type) && !"STRING".equals(left.type)) {
+            if (!numericOperands && !left.isBoolean() && !"CHAR".equals(left.type) && !"STRING".equals(left.type)) {
                 reportSemanticError("Comparacion no soportada para tipo '" + left.type + "'", token);
                 return ExprAttr.invalid();
             }
-        } else if (!left.isNumeric()) {
+        } else if (!numericOperands) {
             reportSemanticError("El operador '" + op + "' solo admite operandos numericos del mismo tipo", token);
             return ExprAttr.invalid();
         }
         String temp = newTemp("BOOL");
         emit(temp + " = " + left.place + " " + op + " " + right.place);
         return new ExprAttr(temp, "BOOL", false);
+    }
+
+    /**
+     * Proposito: evaluar secuencias del tipo a > b > c reduciendolas a una expresion booleana.
+     * Entradas: resultado de la primera subexpresion aritmetica y la lista de comparaciones restantes.
+     * Salidas: ExprAttr booleano que representa la conjuncion de todas las comparaciones consecutivas.
+     * Restricciones: cada comparacion debe ser valida y sus operandos deben compartir tipo compatible.
+     */
+    private ExprAttr buildChainedComparison(ExprAttr first, ArrayList<ComparisonLink> links) {
+        if (first == null || links == null || links.isEmpty()) {
+            return ExprAttr.invalid();
+        }
+        if (!first.isValid()) {
+            return ExprAttr.invalid();
+        }
+        ExprAttr previous = first;
+        ExprAttr accumulated = null;
+        for (ComparisonLink link : links) {
+            if (link == null || link.right == null) {
+                return ExprAttr.invalid();
+            }
+            ExprAttr comparison = compareBinary(link.operator, previous, link.right, link.token);
+            if (comparison == null || !comparison.isValid()) {
+                return ExprAttr.invalid();
+            }
+            accumulated = (accumulated == null)
+                    ? comparison
+                    : logicalBinary("&&", accumulated, comparison, link.token);
+            previous = link.right;
+            if (accumulated == null || !accumulated.isValid()) {
+                return ExprAttr.invalid();
+            }
+        }
+        return accumulated != null ? accumulated : ExprAttr.invalid();
     }
 
     /**
@@ -664,6 +822,34 @@ parser code {:
         }
     }
 
+    private ExprAttr ensureBooleanExpr(ExprAttr expr, Symbol token, String context) {
+        if (expr != null && expr.isBoolean()) {
+            return expr;
+        }
+        reportSemanticError("La expresion en " + context + " debe ser BOOL", token);
+        return new ExprAttr("false", "BOOL", true);
+    }
+
+    private String peekLabelOrFallback(ArrayDeque<String> stack, String context, String prefix, boolean pushWhenMissing) {
+        if (!stack.isEmpty()) {
+            return stack.peek();
+        }
+        reportSemanticError("No existe una etiqueta activa para " + context, null);
+        String fallback = newLabel(prefix + "_recovery");
+        if (pushWhenMissing) {
+            stack.push(fallback);
+        }
+        return fallback;
+    }
+
+    private String popLabelOrFallback(ArrayDeque<String> stack, String context, String prefix) {
+        if (!stack.isEmpty()) {
+            return stack.pop();
+        }
+        reportSemanticError("No existe una etiqueta activa para " + context, null);
+        return newLabel(prefix + "_recovery");
+    }
+
     /**
      * Proposito: centralizar las validaciones de asignaciones escalares y la emision de codigo de tres direcciones.
      * Entradas: metadata del destino, expresion evaluada y simbolo '='.
@@ -694,19 +880,29 @@ parser code {:
             reportSemanticError("Return fuera de una función", token);
             return;
         }
+        boolean expectsValue = !fun.returnsVoid;
+        if (expectsValue && !hasValue) {
+            reportSemanticError("La función '" + fun.name + "' requiere retornar un valor de tipo '" + fun.returnType + "'", token);
+            return;
+        }
+        if (!expectsValue && hasValue) {
+            reportSemanticError("La función '" + fun.name + "' no debe retornar valores", token);
+            return;
+        }
+        if (hasValue) {
+            if (value == null || !value.isValid()) {
+                reportSemanticError("Return inválido", token);
+                return;
+            }
+            if (!fun.returnType.equals(value.type)) {
+                reportSemanticError("El return de '" + fun.name + "' espera tipo '" + fun.returnType + "' y recibe '" + value.type + "'", token);
+                return;
+            }
+            emit("return " + value.place);
+        } else {
+            emit("return");
+        }
         fun.hasReturn = true;
-        if (!hasValue) {
-            reportSemanticError("Return requiere una expresión para función '" + fun.name + "'", token);
-            return;
-        }
-        if (value == null || !value.isValid()) {
-            reportSemanticError("Return inválido", token);
-            return;
-        }
-        if (!fun.returnType.equals(value.type)) {
-            reportSemanticError("El return espera tipo '" + fun.returnType + "' y recibe '" + value.type + "'", token);
-        }
-        emit("return " + value.place);
     }
 
     /**
@@ -749,6 +945,33 @@ parser code {:
      */
     private void emitLabel(String label) {
         cod3D.append(label).append(":\n");
+    }
+
+    /**
+     * Proposito: escribir una cabecera estandarizada que describa el formato del codigo intermedio.
+     * Entradas: ninguna.
+     * Salidas: inserta directivas #!CI_* al inicio del archivo si no se han emitido.
+     * Restricciones: se ejecuta una sola vez por ejecucion del parser.
+     */
+    private void emitCiHeader() {
+        if (ciHeaderEmitted) {
+            return;
+        }
+        ciHeaderEmitted = true;
+        emit("#!CI_VERSION 1.1");
+        emit("#!CI_TARGET MIPS");
+        emit("#!CI_FORMAT structured");
+    }
+
+    private void emitFunctionEntry(String name, String returnType) {
+        emitCiHeader();
+        emit("FUNC_BEGIN " + name + " RET " + returnType);
+        emitLabel("INICIO_funcion_" + name);
+    }
+
+    private void emitFunctionExit(String name) {
+        emitLabel("FIN_funcion_" + name);
+        emit("FUNC_END " + name);
     }
 
     /**
@@ -795,6 +1018,8 @@ parser code {:
      * Restricciones: debe emparejarse con endDecideStructure.
      */
     private void beginDecideStructure() {
+        String beginLabel = newLabel("decide_begin");
+        emitLabel(beginLabel);
         decideEndStack.push(newLabel("decide_end"));
     }
 
@@ -805,9 +1030,7 @@ parser code {:
      * Restricciones: asume que beginDecideStructure ya se invoco.
      */
     private void endDecideStructure() {
-        if (!decideEndStack.isEmpty()) {
-            emitLabel(decideEndStack.pop());
-        }
+        emitLabel(popLabelOrFallback(decideEndStack, "decide", "decide_end"));
     }
 
     /**
@@ -817,13 +1040,10 @@ parser code {:
      * Restricciones: la condicion debe ser booleana o se reporta error.
      */
     private void beginDecideCase(ExprAttr condition, Symbol token) {
-        if (condition == null || !condition.isBoolean()) {
-            reportSemanticError("La condición de decide debe ser BOOL", token);
-            return;
-        }
+        ExprAttr guard = ensureBooleanExpr(condition, token, "la condición de decide");
         String hitLabel = newLabel("case_hit");
         String nextLabel = newLabel("case_next");
-        emit("if " + condition.place + " goto " + hitLabel);
+        emit("if " + guard.place + " goto " + hitLabel);
         emit("goto " + nextLabel);
         emitLabel(hitLabel);
         decideNextStack.push(nextLabel);
@@ -836,8 +1056,8 @@ parser code {:
      * Restricciones: requiere que beginDecideCase haya colocado una etiqueta en la pila.
      */
     private void endDecideCase() {
-        String endLabel = decideEndStack.peek();
-        String nextLabel = decideNextStack.isEmpty() ? newLabel("case_next") : decideNextStack.pop();
+        String endLabel = peekLabelOrFallback(decideEndStack, "decide", "decide_end", true);
+        String nextLabel = decideNextStack.isEmpty() ? newLabel("case_next_recovery") : decideNextStack.pop();
         emit("goto " + endLabel);
         emitLabel(nextLabel);
     }
@@ -859,7 +1079,7 @@ parser code {:
      * Restricciones: asume que decideEndStack tiene una entrada vigente.
      */
     private void endDecideElse() {
-        String endLabel = decideEndStack.peek();
+        String endLabel = peekLabelOrFallback(decideEndStack, "decide", "decide_end", true);
         emit("goto " + endLabel);
     }
 
@@ -884,11 +1104,11 @@ parser code {:
      * Restricciones: solo es valido si beginLoopStructure fue invocado.
      */
     private void endLoopStructure() {
-        if (!loopEndStack.isEmpty()) {
-            emitLabel(loopEndStack.pop());
-        }
+        emitLabel(popLabelOrFallback(loopEndStack, "loop", "loop_end"));
         if (!loopStartStack.isEmpty()) {
             loopStartStack.pop();
+        } else {
+            reportSemanticError("No existe etiqueta de inicio activa para loop", null);
         }
     }
 
@@ -899,13 +1119,10 @@ parser code {:
      * Restricciones: la expresion debe evaluar a BOOL.
      */
     private void finalizeLoopBody(ExprAttr exitExpr, Symbol token) {
-        if (exitExpr == null || !exitExpr.isBoolean()) {
-            reportSemanticError("La condición de salida del loop debe ser BOOL", token);
-            return;
-        }
-        String start = loopStartStack.peek();
-        String end = loopEndStack.peek();
-        emit("if " + exitExpr.place + " goto " + end);
+        ExprAttr guard = ensureBooleanExpr(exitExpr, token, "la condición de salida del loop");
+        String start = peekLabelOrFallback(loopStartStack, "loop", "loop_begin", true);
+        String end = peekLabelOrFallback(loopEndStack, "loop", "loop_end", true);
+        emit("if " + guard.place + " goto " + end);
         emit("goto " + start);
     }
 
@@ -1127,7 +1344,7 @@ scan with {:return lex.next_token();:};
 terminal            IDENTIFIER, MAS, MENOS, DMENOS, DMAS, MULTI, DIV, FLOAT_DIV, POTENCIA, INT_LITERAL;
 terminal            INIT_BLOCK, END_BLOCK, INIT_COMMENT, END_COMMENT, COMMENT, PARAM, COMA, STRING_LITERAL;
 terminal            EQ, GREATHER, LOWER, MORE, LESS, COMPARA, DIFF, AND, OR, NEGA;
-terminal            INT, FLOAT, CHAR, BOOL, STRING, ARRAY;
+terminal            INT, FLOAT, CHAR, BOOL, STRING, VOID, ARRAY;
 terminal            GLOBAL, LET, DOT, PRINCIPAL;
 terminal            TRUE, FALSE;
 terminal            ELSE, FOR, DECIDE, OF, LOOP, END, EXIT, WHEN, STEP, TO, DOWNTO, DO;
@@ -1139,10 +1356,13 @@ terminal            DOLLAR; /* end of Expression */
 /* No terminales */
 non terminal            Integer expr;// almacena resultados intermedios de subexpresiones
 non terminal            PROGRAMA, varIns, varAsig, BLOCK, compAritOp, factor, term, funcStruct, mainStruct, outPutStruct, blockStart, blockStartClose, loopBody;
-non terminal            arrayIns, arrayAsig, arrayInsAsign, elementos, numbers;
+non terminal            arrayIns, arrayAsig, arrayInsAsign, elementos, numbers, varInsInit, arrayLetStmt;
 non terminal            decideClauseList, decideClause, decideOfStruct, loopStruct, loopElseOpt, forStruct, caseCondition;
 non terminal            inputStruct, mainInitial, funInitial, exprP, exprLog, exprRel, arrayElement, paramStruct, paramList, PROGRAM_ITEMS, arrayInsGl, varInsGl, varInsAsig, varInsAsigGl, arrayInsAsignGl;
 non terminal            paramSection, paramSectionClose, paramDeclList, paramDecl, argListOpt, argList, forInit, stepValue, commentBlock, commentBody;
+non terminal String scalarType;
+non terminal ArrayList arrayLiteral, arrayLiteralItems, relChainSeq, relChainSuffix;
+non terminal ComparisonLink relChainLink;
 
 /* Orden de precedencia */
 precedence left MAS, MENOS;
@@ -1153,7 +1373,7 @@ precedence left DIV;
 
 start with PROGRAMA;
 
-PROGRAMA ::= {: initializeGlobalScope(); :} 
+PROGRAMA ::= {: initializeGlobalScope(); emitCiHeader(); :} 
     PROGRAM_ITEMS {: exportarResultados(); :};
 
 PROGRAM_ITEMS ::= mainStruct PROGRAM_ITEMS 
@@ -1164,12 +1384,16 @@ PROGRAM_ITEMS ::= mainStruct PROGRAM_ITEMS
             | arrayInsGl DOLLAR
             | varInsGl DOLLAR PROGRAM_ITEMS 
             | varInsGl DOLLAR
+            | varInsInit DOLLAR PROGRAM_ITEMS
+            | varInsInit DOLLAR
             | varIns DOLLAR PROGRAM_ITEMS 
             | varIns DOLLAR
             | varInsAsigGl PROGRAM_ITEMS 
             | varInsAsigGl
             | arrayInsAsignGl PROGRAM_ITEMS 
             | arrayInsAsignGl
+            | arrayLetStmt DOLLAR PROGRAM_ITEMS
+            | arrayLetStmt DOLLAR
             | commentBlock PROGRAM_ITEMS
             | commentBlock
             | error PROGRAM_ITEMS;  
@@ -1186,17 +1410,25 @@ BLOCK  ::=  BLOCK exprP DOLLAR
        | BLOCK mainStruct
        | BLOCK funcStruct 
        | BLOCK varIns DOLLAR
+         | BLOCK varInsInit DOLLAR
     | BLOCK decideOfStruct 
        | BLOCK loopStruct  
        | BLOCK forStruct 
        | BLOCK arrayIns DOLLAR
+         | BLOCK arrayLetStmt DOLLAR
        | BLOCK varInsAsig 
        | BLOCK arrayInsAsign
     | BLOCK inputStruct
        | BLOCK outPutStruct DOLLAR
        | BLOCK BREAK DOLLAR
-       | BLOCK RETURN exprP DOLLAR
-       | BLOCK RETURN DOLLAR
+         | BLOCK RETURN:retTok exprP:exp DOLLAR
+                {: Symbol retSym = tokenFrom(retTok, retTokleft, retTokright, sym.RETURN);
+                    recordReturn((ExprAttr)exp, retSym, true);
+                :}
+         | BLOCK RETURN:retTok DOLLAR
+                {: Symbol retSym = tokenFrom(retTok, retTokleft, retTokright, sym.RETURN);
+                    recordReturn(null, retSym, false);
+                :}
      | BLOCK commentBlock
        | exprP DOLLAR
        | arrayIns DOLLAR
@@ -1210,6 +1442,8 @@ BLOCK  ::=  BLOCK exprP DOLLAR
        | arrayInsAsignGl
        | varInsAsig 
        | varIns DOLLAR
+         | varInsInit DOLLAR
+         | arrayLetStmt DOLLAR
     | decideOfStruct 
        | forStruct
        | loopStruct
@@ -1292,17 +1526,44 @@ inputStruct ::= INPUT UKRA IDENTIFIER:id RUSS DOLLAR {:
 exprP ::= exprLog:e {: RESULT = e; :};
 
 exprLog ::= exprLog:l AND:op exprRel:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.AND); RESULT = logicalBinary("&&", (ExprAttr)l, (ExprAttr)r, opSym); :}
-    | exprLog:l OR:op exprRel:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.OR); RESULT = logicalBinary("||", (ExprAttr)l, (ExprAttr)r, opSym); :}
-    | exprRel:e {: RESULT = e; :};
+        | exprLog:l OR:op exprRel:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.OR); RESULT = logicalBinary("||", (ExprAttr)l, (ExprAttr)r, opSym); :}
+        | exprRel:e {: RESULT = e; :};
 
-exprRel ::= compAritOp:l GREATHER:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.GREATHER); RESULT = compareBinary(">", (ExprAttr)l, (ExprAttr)r, opSym); :}
-          | compAritOp:l LESS:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.LESS); RESULT = compareBinary("<", (ExprAttr)l, (ExprAttr)r, opSym); :}
-          | compAritOp:l MORE:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MORE); RESULT = compareBinary(">=", (ExprAttr)l, (ExprAttr)r, opSym); :}
-          | compAritOp:l LOWER:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.LOWER); RESULT = compareBinary("<=", (ExprAttr)l, (ExprAttr)r, opSym); :}
-          | compAritOp:l DIFF:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.DIFF); RESULT = compareBinary("!=", (ExprAttr)l, (ExprAttr)r, opSym); :}
-          | compAritOp:l COMPARA:op compAritOp:r {: Symbol opSym = tokenFrom(op, opleft, opright, sym.COMPARA); RESULT = compareBinary("==", (ExprAttr)l, (ExprAttr)r, opSym); :}
-          | NEGA:op exprRel:e {: Symbol opSym = tokenFrom(op, opleft, opright, sym.NEGA); RESULT = logicalUnary("!", (ExprAttr)e, opSym); :}
-          | compAritOp:e {: RESULT = e; :};
+exprRel ::= compAritOp:left relChainSeq:seq {: ExprAttr base = (ExprAttr)left; RESULT = (seq != null) ? buildChainedComparison(base, (ArrayList<ComparisonLink>)seq) : base; :}
+                    | NEGA:op exprRel:e {: Symbol opSym = tokenFrom(op, opleft, opright, sym.NEGA); RESULT = logicalUnary("!", (ExprAttr)e, opSym); :};
+
+relChainSeq ::= relChainLink:first relChainSuffix:tail
+                            {:
+                                    ArrayList<ComparisonLink> list = new ArrayList<>();
+                                    list.add((ComparisonLink)first);
+                                    if (tail != null) list.addAll((ArrayList<ComparisonLink>)tail);
+                                    RESULT = list;
+                            :}
+                        | /* empty */ {: RESULT = null; :};
+
+relChainSuffix ::= relChainLink:first relChainSuffix:tail
+                                 {:
+                                         ArrayList<ComparisonLink> list = new ArrayList<>();
+                                         list.add((ComparisonLink)first);
+                                         if (tail != null) list.addAll((ArrayList<ComparisonLink>)tail);
+                                         RESULT = list;
+                                 :}
+                             | /* empty */ {: RESULT = null; :};
+
+relChainLink ::= GREATHER:op compAritOp:right {: Symbol opSym = tokenFrom(op, opleft, opright, sym.GREATHER); RESULT = new ComparisonLink(">", (ExprAttr)right, opSym); :}
+                             | LESS:op compAritOp:right {: Symbol opSym = tokenFrom(op, opleft, opright, sym.LESS); RESULT = new ComparisonLink("<=", (ExprAttr)right, opSym); :}
+                             | MORE:op compAritOp:right {: Symbol opSym = tokenFrom(op, opleft, opright, sym.MORE); RESULT = new ComparisonLink(">=", (ExprAttr)right, opSym); :}
+                             | LOWER:op compAritOp:right {: Symbol opSym = tokenFrom(op, opleft, opright, sym.LOWER); RESULT = new ComparisonLink("<", (ExprAttr)right, opSym); :}
+                             | DIFF:op compAritOp:right {: Symbol opSym = tokenFrom(op, opleft, opright, sym.DIFF); RESULT = new ComparisonLink("!=", (ExprAttr)right, opSym); :}
+                             | COMPARA:op compAritOp:right {: Symbol opSym = tokenFrom(op, opleft, opright, sym.COMPARA); RESULT = new ComparisonLink("==", (ExprAttr)right, opSym); :};
+
+
+
+scalarType ::= INT {: RESULT = "INT"; :}
+             | CHAR {: RESULT = "CHAR"; :}
+             | FLOAT {: RESULT = "FLOAT"; :}
+             | BOOL {: RESULT = "BOOL"; :}
+             | STRING {: RESULT = "STRING"; :};
 
 
 
@@ -1331,19 +1592,23 @@ varAsig      ::=  IDENTIFIER:id EQ:eq exprP:exp DOLLAR       {:
 
 
 //Instanciacion simple de variables
-    varIns       ::= LET INT IDENTIFIER:ID    {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "INT", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":INT"); :}    
-                 | LET CHAR IDENTIFIER:ID     {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "CHAR", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":CHAR"); :}      
-                 | LET FLOAT IDENTIFIER:ID    {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "FLOAT", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":FLOAT"); :}
-                 | LET BOOL IDENTIFIER:ID     {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "BOOL", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":BOOL"); :}    
-                 | LET STRING IDENTIFIER:ID  {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(currentHash, name, "STRING", false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":STRING"); :};
+    varIns       ::= LET scalarType:t IDENTIFIER:ID    {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); String typeName = t != null ? t.toString() : "INT"; SymbolInfo info = declareSymbol(currentHash, name, typeName, false, 0, false, false, idSym); if (info != null) emit("declare " + name + ":" + typeName); :};
+
+    varInsInit   ::= LET scalarType:t IDENTIFIER:ID EQ:eq exprP:exp {:
+                        Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER);
+                        Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ);
+                        String name = lexeme(ID);
+                        String typeName = t != null ? t.toString() : "INT";
+                        SymbolInfo info = declareSymbol(currentHash, name, typeName, false, 0, false, false, idSym);
+                        if (info != null) {
+                            emit("declare " + name + ":" + typeName);
+                            recordAssignment(info, (ExprAttr)exp, eqSym);
+                        }
+                    :};
 
 
 
-    varInsGl     ::=  GLOBAL LET INT IDENTIFIER:ID     {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "INT", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":INT"); :}
-                 | GLOBAL LET CHAR IDENTIFIER:ID       {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "CHAR", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":CHAR"); :}
-                 | GLOBAL LET FLOAT IDENTIFIER:ID      {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "FLOAT", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":FLOAT"); :}
-                 | GLOBAL LET STRING IDENTIFIER:ID    {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "STRING", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":STRING"); :}
-                 | GLOBAL LET BOOL IDENTIFIER:ID       {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); SymbolInfo info = declareSymbol(globalHash, name, "BOOL", false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":BOOL"); :};
+    varInsGl     ::=  GLOBAL LET scalarType:t IDENTIFIER:ID     {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); String typeName = t != null ? t.toString() : "INT"; SymbolInfo info = declareSymbol(globalHash, name, typeName, false, 0, false, true, idSym); if (info != null) emit("declare_global " + name + ":" + typeName); :};
 
     varInsAsig   ::= varIns varAsig;
 
@@ -1351,18 +1616,20 @@ varAsig      ::=  IDENTIFIER:id EQ:eq exprP:exp DOLLAR       {:
 
     
     funInitial   ::= INT IDENTIFIER:ID
-                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "INT", idSym); emit("begin_func " + name); :}
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "INT", idSym); emitFunctionEntry(name, "INT"); :}
                  | CHAR IDENTIFIER:ID
-                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "CHAR", idSym); emit("begin_func " + name); :}
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "CHAR", idSym); emitFunctionEntry(name, "CHAR"); :}
                  | BOOL IDENTIFIER:ID
-                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "BOOL", idSym); emit("begin_func " + name); :}
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "BOOL", idSym); emitFunctionEntry(name, "BOOL"); :}
                  | STRING IDENTIFIER:ID
-                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "STRING", idSym); emit("begin_func " + name); :}
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "STRING", idSym); emitFunctionEntry(name, "STRING"); :}
                  | FLOAT IDENTIFIER:ID
-                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "FLOAT", idSym); emit("begin_func " + name); :};
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "FLOAT", idSym); emitFunctionEntry(name, "FLOAT"); :}
+                 | VOID IDENTIFIER:ID
+                            {:   Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); String name = lexeme(ID); startFunctionScope(name, "VOID", idSym); emitFunctionEntry(name, "VOID"); :};
 
     //Declaracion inicial del bloque para las funciones
-    funcStruct    ::= funInitial paramSection blockStart BLOCK END_BLOCK {: String finished = currentHash; emit("end_func " + (finished != null ? finished : "?")); FunctionInfo info = finished != null ? functionTable.get(finished) : null; if (info != null && !info.hasReturn) { reportSemanticError("La funcion '" + finished + "' no retorna", null); } closeCurrentScope(); :};  
+    funcStruct    ::= funInitial paramSection {: emitFunctionParamMetadata(); :} blockStart BLOCK END_BLOCK {: String finished = currentHash; if (finished != null) { emitFunctionExit(finished); } FunctionInfo info = finished != null ? functionTable.get(finished) : null; if (info != null && !info.returnsVoid && !info.hasReturn) { reportSemanticError("La funcion '" + finished + "' no retorna", null); } closeCurrentScope(); :};  
 
 paramSection ::= UKRA paramDeclList paramSectionClose
                | UKRA paramSectionClose
@@ -1391,12 +1658,13 @@ argListOpt ::= argList:l {: RESULT = l; :}
 argList ::= exprP:e {: ArrayList tmp = new ArrayList(); tmp.add((ExprAttr)e); RESULT = tmp; :}
           | exprP:e COMA argList:rest {: ArrayList tmp = new ArrayList(); tmp.add((ExprAttr)e); tmp.addAll((ArrayList)rest); RESULT = tmp; :};
 
-     mainStruct  ::= mainInitial paramSection blockStart BLOCK END_BLOCK {: emit("end_main"); closeCurrentScope(); :};
+    mainStruct  ::= mainInitial paramSection {: emitFunctionParamMetadata(); :} blockStart BLOCK END_BLOCK {: emitFunctionExit("MAIN"); emitLabel("FIN_main"); emit("MAIN_END"); closeCurrentScope(); :};
 
       mainInitial  ::= PRINCIPAL:KW 
                                                  {: Symbol kwSym = tokenFrom(KW, KWleft, KWright, sym.PRINCIPAL);
                                                      startFunctionScope("MAIN", "INT", kwSym);
-                                                     emit("begin_main");
+                                                     emit("MAIN_BEGIN");
+                                                     emitFunctionEntry("MAIN", "INT");
                                                  :};
 
 //Estructura decide of
@@ -1405,10 +1673,10 @@ decideOfStruct ::= DECIDE OF {: beginDecideStructure(); :} decideClauseList END 
 decideClauseList ::= decideClauseList decideClause
                    | decideClause;
 
-decideClause ::= caseCondition:cond ARROW INIT_BLOCK {: beginDecideCase((ExprAttr)cond, null); :} BLOCK END_BLOCK {: endDecideCase(); :}
+decideClause ::= caseCondition:cond ARROW:arrowTok INIT_BLOCK {: Symbol arrowSym = tokenFrom(arrowTok, arrowTokleft, arrowTokright, sym.ARROW); beginDecideCase((ExprAttr)cond, arrowSym); :} BLOCK END_BLOCK {: endDecideCase(); :}
                | ELSE ARROW INIT_BLOCK {: beginDecideElse(); :} BLOCK END_BLOCK {: endDecideElse(); :};
 
-caseCondition ::= exprP;
+caseCondition ::= exprP:e {: RESULT = e; :};
 
                   
 //Produccion loop
@@ -1458,6 +1726,32 @@ arrayIns ::=  INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC {: Symbol i
 arrayInsGl ::=  GLOBAL INT ARRAY IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC  {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL); String name = lexeme(ID); int len = Math.max(0, literalToInt(szSym)); SymbolInfo info = declareSymbol(globalHash, name, "INT", true, len, false, true, idSym); if (info != null) { emit("declare_global_arr " + name + "[" + len + "] INT"); if (len > 0) emit("arr_pad_zero " + name + ", 0, " + len); } :}
             | GLOBAL CHAR ARRAY IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC {: Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER); Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL); String name = lexeme(ID); int len = Math.max(0, literalToInt(szSym)); SymbolInfo info = declareSymbol(globalHash, name, "CHAR", true, len, false, true, idSym); if (info != null) { emit("declare_global_arr " + name + "[" + len + "] CHAR"); if (len > 0) emit("arr_pad_zero " + name + ", 0, " + len); } :};
 
+arrayLetStmt ::= LET scalarType:t IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC {:
+                    Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER);
+                    Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL);
+                    String name = lexeme(ID);
+                    String elementType = t != null ? t.toString() : "INT";
+                    int len = Math.max(0, literalToInt(szSym));
+                    SymbolInfo info = declareSymbol(currentHash, name, elementType, true, len, false, false, idSym);
+                    if (info != null) {
+                        emit("declare_arr " + name + "[" + len + "] " + elementType);
+                        initializeArrayValues(info, null, idSym);
+                    }
+                :}
+              | LET scalarType:t IDENTIFIER:ID SQUARES INT_LITERAL:SZ SQUAREC EQ:eq arrayLiteral:vals {:
+                    Symbol idSym = tokenFrom(ID, IDleft, IDright, sym.IDENTIFIER);
+                    Symbol szSym = tokenFrom(SZ, SZleft, SZright, sym.INT_LITERAL);
+                    Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ);
+                    String name = lexeme(ID);
+                    String elementType = t != null ? t.toString() : "INT";
+                    int len = Math.max(0, literalToInt(szSym));
+                    SymbolInfo info = declareSymbol(currentHash, name, elementType, true, len, false, false, idSym);
+                    if (info != null) {
+                        emit("declare_arr " + name + "[" + len + "] " + elementType);
+                        initializeArrayValues(info, (ArrayList<ExprAttr>)vals, eqSym);
+                    }
+                :};
+
 //Declaracion de ARRAYS Y TODO LO RELACIONADO
 arrayAsig ::= IDENTIFIER:id EQ:eq SQUARES elementos:vals SQUAREC DOLLAR {: 
                     Symbol idSym = tokenFrom(id, idleft, idright, sym.IDENTIFIER);
@@ -1470,38 +1764,19 @@ arrayAsig ::= IDENTIFIER:id EQ:eq SQUARES elementos:vals SQUAREC DOLLAR {:
                         reportSemanticError("'" + name + "' no es un arreglo", idSym);
                     } else {
                         ArrayList<ExprAttr> list = (ArrayList<ExprAttr>)vals;
-                        ensureHomogeneousElements(list, eqSym);
-                        if (list != null) {
-                            if (info.arraySize > 0 && list.size() > info.arraySize) {
-                                reportSemanticError("Demasiados elementos para '" + name + "'", eqSym);
-                            }
-                            for (int i = 0; i < list.size(); i++) {
-                                if (info.arraySize > 0 && i >= info.arraySize) {
-                                    break;
-                                }
-                                ExprAttr expr = list.get(i);
-                                if (expr == null || !expr.isValid()) {
-                                    reportSemanticError("Elemento invalido en inicializacion de '" + name + "'", eqSym);
-                                    continue;
-                                }
-                                if (!info.type.equals(expr.type)) {
-                                    reportSemanticError("Elemento no compatible para arreglo '" + name + "'", eqSym);
-                                    continue;
-                                }
-                                emit("astore " + name + ", " + i + ", " + expr.place);
-                            }
-                            if (info.arraySize > 0 && list.size() < info.arraySize) {
-                                emit("arr_pad_zero " + name + ", " + list.size() + ", " + info.arraySize);
-                            }
-                        } else if (info.arraySize > 0) {
-                            emit("arr_pad_zero " + name + ", 0, " + info.arraySize);
-                        }
+                        initializeArrayValues(info, list, eqSym);
                     }
                 :}
           | EQ:eq SQUARES elementos SQUAREC DOLLAR {: Symbol eqSym = tokenFrom(eq, eqleft, eqright, sym.EQ); reportSemanticError("Se requiere identificador para asignar arreglo", eqSym); :};
 
 elementos ::= compAritOp:e COMA elementos:rest {: ArrayList<ExprAttr> tmp = new ArrayList<>(); tmp.add((ExprAttr)e); tmp.addAll((ArrayList<ExprAttr>)rest); RESULT = tmp; :}
            | compAritOp:e {: ArrayList<ExprAttr> tmp = new ArrayList<>(); tmp.add((ExprAttr)e); RESULT = tmp; :};
+
+arrayLiteral ::= INIT_BLOCK arrayLiteralItems:vals END_BLOCK {: RESULT = (ArrayList<ExprAttr>)vals; :}
+               | INIT_BLOCK END_BLOCK {: RESULT = new ArrayList<ExprAttr>(); :};
+
+arrayLiteralItems ::= exprP:exp COMA arrayLiteralItems:rest {: ArrayList<ExprAttr> list = new ArrayList<>(); list.add((ExprAttr)exp); list.addAll((ArrayList<ExprAttr>)rest); RESULT = list; :}
+                    | exprP:exp {: ArrayList<ExprAttr> list = new ArrayList<>(); list.add((ExprAttr)exp); RESULT = list; :};
 
 arrayInsAsign ::= arrayIns arrayAsig;
 
